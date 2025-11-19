@@ -1,3 +1,5 @@
-datatype Id = 
-  | Id(id: nat)
+type Id = nat
+
+datatype ConnectId = 
+  | Id(id: Id)
   | NoConnect
