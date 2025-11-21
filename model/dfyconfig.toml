@@ -1,0 +1,4 @@
+[options]
+standard-libraries = false
+output = "build/solution"
+verification-time-limit = 60
