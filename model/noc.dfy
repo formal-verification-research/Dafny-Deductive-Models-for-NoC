@@ -3,23 +3,6 @@ module NoC {
 
   const BUFFER_LENGTH: Length
 
-  datatype Buffer<T> =
-    | Node(payload: T, next: Buffer)
-    | Tail
-    {
-      function length(): nat {
-        match this
-        case Node(_, next) => 1 + next.length()
-        case Tail => 0
-      }
-
-      function append(p: T): Buffer<T> {
-        match this
-        case Node(payload, next) => Node(payload, next.append(p))
-        case Tail => Node(p, Tail)
-      }
-    }
-
   datatype Direction =
     | North
     | South
@@ -27,55 +10,67 @@ module NoC {
     | West
     | Local
 
-  class Router<T> {
-    var North: Buffer<T>
-    var East:  Buffer<T>
-    var South: Buffer<T>
-    var West:  Buffer<T>
-    var Local: Buffer<T>
+  class Buffer {
+    var storage: array<nat>
+    var used: nat
 
     constructor()
-      ensures North.length() == 0 && East.length() == 0 && South.length() == 0 && West.length() == 0 && Local.length() == 0
+      ensures used == 0
+      ensures storage.Length == BUFFER_LENGTH
     {
-      North := Tail;
-      South := Tail;
-      East  := Tail;
-      West  := Tail;
-      Local := Tail;
+      used := 0;
+      storage := new nat[BUFFER_LENGTH](_ => 0);
     }
 
-    method insertLocal(payload: T)
-      modifies this.Local 
+    function capacity(): nat
+      reads this`storage
     {
-      this.Local := this.Local.append(payload);
+      storage.Length
+    }
+
+    function length(): nat
+      reads this
+    {
+      used
+    }
+
+    method append(n: nat)
+      requires used < this.storage.Length
+      modifies this`storage
+      modifies this`storage[used]
+      ensures old(used) + 1 == used
+      ensures this.storage[old(used)] == n
+    {
+      this.storage[used] := n;
+      used := used + 1;
     }
   }
 
-  type NoC = n: seq<seq<Router<nat>>> | |n| >= 2 && (forall y :: 0 <= y < |n| ==> |n[y]| == |n|) witness *
+  class Router {
+    var North: Buffer
+    var East:  Buffer
+    var South: Buffer
+    var West:  Buffer
+    var Local: Buffer
 
-  method generateFlits(n: NoC, cycle: nat) returns (n': NoC)
-  {
-    n' := n;
-
-    if cycle % 3 >= 3 {
-      return;
+    constructor()
+      ensures North.length() == 0 && North.capacity() == BUFFER_LENGTH
+      ensures East.length()  == 0 && East.capacity() == BUFFER_LENGTH
+      ensures South.length() == 0 && South.capacity() == BUFFER_LENGTH
+      ensures West.length()  == 0 && West.capacity() == BUFFER_LENGTH
+      ensures Local.length() == 0 && Local.capacity() == BUFFER_LENGTH
+    {
+      North := new Buffer();
+      South := new Buffer();
+      East  := new Buffer();
+      West  := new Buffer();
+      Local := new Buffer();
     }
 
-    var dim := |n|;
-    var y := 0;
-
-    while y < dim
+    method insertLocal(payload: nat)
+      modifies this.Local.storage
     {
-      var x := 0;
-      while x < dim
-      {
-        if n'[y][x].Local.length() < BUFFER_LENGTH {
-          var dest_id :| 0 <= dest_id < dim * dim && dest_id != y*dim + x;
-          n'[y][x].Local := n'[y][x].Local.append(dest_id);
-        }
-        x := x + 1;
-      }
-      y := y + 1;
+      this.Local.append(payload);
     }
   }
 }
