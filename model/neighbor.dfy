@@ -1,4 +1,4 @@
-datatype Neighbor = 
+datatype Direction = 
   | North 
   | East 
   | South 

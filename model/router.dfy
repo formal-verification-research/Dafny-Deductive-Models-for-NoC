@@ -2,11 +2,20 @@
 include "channel.dfy"
 include "neighbor.dfy"
 
+datatype DirSeq<T> =
+  | DirSeq(
+    North: T,
+    South: T,
+    East:  T,
+    West:  T,
+    Local: T
+  )
+
 datatype Router = 
-  | Router(channels: seq<Channel>,
-           ids: seq<ConnectId>,
-           priority_list: seq<Id>,
-           priority_list_temp: seq<Id>,
+  | Router(id: Id,
+           channels: DirSeq<Channel>,
+           ids: DirSeq<ConnectId>,
+           priority_list: seq<Direction>,
            serviced_idx: nat,
            unserviced_idx: nat,
            total_unserviced: nat,
