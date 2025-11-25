@@ -46,61 +46,90 @@ module NoC {
   method DiscreteRandom(low: nat, high: nat) returns (r: nat)
     ensures {:axiom} low <= r <= high
 
-  class Router {
-    var North: Buffer<nat>
-    var East:  Buffer<nat>
-    var South: Buffer<nat>
-    var West:  Buffer<nat>
-    var Local: Buffer<nat>
-
-    constructor()
-      ensures North.length() == 0 && East.length() == 0 && South.length() == 0 && West.length() == 0 && Local.length() == 0
-    {
-      North := Tail;
-      South := Tail;
-      East  := Tail;
-      West  := Tail;
-      Local := Tail;
-    }
-
-    method generateFlits(cycle: nat, dim: nat, id: nat)
-      requires 2 <= dim
-      requires 0 <= id < dim*dim
-      requires this.Local.length() <= BUFFER_LENGTH
-      modifies this
-      ensures old(this.Local).is_prefix_of(this.Local)
-      ensures this.Local.length() <= BUFFER_LENGTH
-    {
-      if cycle % 3 >= 3 {
-        return;
+  datatype Router =
+    | Router(
+      North: Buffer<nat>,
+      East:  Buffer<nat>,
+      South: Buffer<nat>,
+      West:  Buffer<nat>,
+      Local: Buffer<nat>
+    ) {
+      static function init(): Router
+        ensures
+          && init().North.length() == 0
+          && init().East.length()  == 0
+          && init().South.length() == 0
+          && init().West.length()  == 0
+          && init().Local.length() == 0
+      {
+        Router(Tail, Tail, Tail, Tail, Tail)
       }
 
-      if this.Local.length() < BUFFER_LENGTH {
-        var dest_id := DiscreteRandom(0, dim*dim - 2);
-        if dest_id >= id {
-          dest_id := dest_id + 1;
-        }
-        assert dest_id != id;
-        this.Local := this.Local.append(dest_id);
-      } else {
-        assert old(this.Local) == this.Local;
-        Buffer.EqualIsPrefix(old(this.Local), this.Local);
+      function generateFlits(cycle: nat, dest: nat): (r: Router)
+        requires this.Local.length() <= BUFFER_LENGTH
+        ensures r.Local.length() <= BUFFER_LENGTH
+      {
+        Router(
+          this.North,
+          this.East,
+          this.South,
+          this.West,
+          if cycle % 3 >= 3 || this.Local.length() == BUFFER_LENGTH
+          then this.Local 
+          else this.Local.append(dest)
+        )
       }
     }
-  }
 
   class NoC {
     const dim: nat
     var routers: seq<seq<Router>>
 
+    ghost predicate ValidDims()
+      reads this`routers
+    {
+      && |routers| == this.dim
+      && forall y :: 0 <= y < this.dim ==> |routers[y]| == this.dim
+    }
+
     constructor(dim: nat)
       ensures dim == this.dim
-      ensures |routers| == this.dim
-      ensures forall y :: 0 <= y < this.dim ==> |routers[y]| == this.dim
+      ensures this.ValidDims()
     {
       this.dim := dim;
       new;
-      routers := seq(this.dim, y => seq(x, _ => new Router()));
+      routers := seq(this.dim, y => seq(this.dim, _ => Router.init()));
+    }
+  }
+
+  method run(stop: nat, n: NoC)
+    requires n.ValidDims()
+    modifies n`routers
+  {
+    var cycle := 0;
+
+    while cycle <= stop
+      invariant n.ValidDims()
+    {
+      assert |n.routers| == n.dim;
+      n.routers :=
+        seq(n.dim,
+          y requires 0 <= y < n.dim reads n =>
+          seq(n.dim,
+            x requires 0 <= x < n.dim reads n =>
+              var id := y * n.dim + x;
+              assume y < |n.routers|;
+              assume x < |n.routers[y]|;
+              var dest: nat :| 0 <= dest < n.dim*n.dim - 1 && dest != id;
+              if n.routers[y][x].Local.length() < BUFFER_LENGTH
+              then
+                assert n.routers[y][x].Local.length() <= BUFFER_LENGTH;
+                n.routers[y][x].generateFlits(cycle, dest)
+              else n.routers[y][x]
+          )
+        );
+
+      cycle := cycle + 1;
     }
   }
 }
