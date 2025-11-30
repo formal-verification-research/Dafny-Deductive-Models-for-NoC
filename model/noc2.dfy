@@ -35,12 +35,12 @@ module NoC2 {
     const id: nat
     const dim: nat
     const buffer_length: nat
-    // var channels: FixedSeq<Channel>
-    var north: Channel
-    var east:  Channel
-    var south: Channel
-    var west:  Channel
-    var local: Channel
+    var channels: FixedSeq<Channel>
+    // var north: Channel
+    // var east:  Channel
+    // var south: Channel
+    // var west:  Channel
+    // var local: Channel
     var serviced: FixedSeq<bool>
     var totalUnserviced: nat
 
@@ -49,22 +49,18 @@ module NoC2 {
       ensures this.id == id
       ensures this.dim == dim
       ensures this.buffer_length == buffer_length
-      ensures this.north.length() == 0
-      ensures this.east.length()  == 0
-      ensures this.south.length() == 0
-      ensures this.west.length()  == 0
-      ensures this.local.length() == 0
+      ensures this.channels[N].length() == 0
+      ensures this.channels[S].length()  == 0
+      ensures this.channels[E].length() == 0
+      ensures this.channels[W].length()  == 0
+      ensures this.channels[L].length() == 0
       ensures this.serviced == [false, false, false, false, false]
       ensures this.totalUnserviced == 0
     {
       this.id := id;
       this.dim := dim;
       this.buffer_length := buffer_length;
-      this.north := Channel.init();
-      this.east  := Channel.init();
-      this.south := Channel.init();
-      this.west  := Channel.init();
-      this.local := Channel.init();
+      this.channels := [Channel.init(), Channel.init(), Channel.init(), Channel.init(), Channel.init()];
       this.serviced := [false, false, false, false, false];
       this.totalUnserviced := 0;
     }
@@ -73,39 +69,28 @@ module NoC2 {
       ensures {:axiom} 0 <= id < dim*dim && dest != id
 
     method generateFlits(cycle: nat)
-      requires this.local.length() <= this.buffer_length
-      modifies this`local
-      ensures old(this.local.buffer) <= this.local.buffer
-      ensures this.local.length() <= this.buffer_length 
+      requires this.channels[L].length() <= this.buffer_length
+      modifies this`channels
+      ensures old(this.channels[L].buffer) <= this.channels[L].buffer
+      ensures this.channels[L].length() <= this.buffer_length
+      ensures forall i :: i in {N, S, E, W} ==> old(this.channels[i]) == this.channels[i]
     {
-      if cycle % 3 < 3 && |this.local.buffer| < this.buffer_length {
+      if cycle % 3 < 3 && |this.channels[L].buffer| < this.buffer_length {
         var dest := Router.getDestination(this.id, this.dim);
-        this.local := this.local.insert(dest);
+        this.channels := [this.channels[N], this.channels[E], this.channels[S], this.channels[W], this.channels[L].insert(dest)];
       }
     }
 
     method prepRouter(cycle: nat)
-      modifies this`north
-      modifies this`east
-      modifies this`south
-      modifies this`west
-      modifies this`local
-      ensures old(this.north.buffer) == this.north.buffer
-      ensures old(this.east.buffer)  == this.east.buffer
-      ensures old(this.south.buffer) == this.south.buffer
-      ensures old(this.west.buffer)  == this.west.buffer
-      ensures old(this.local.buffer) == this.local.buffer
-      ensures (this.north.length() == 0 <==> this.north.isEmpty) && (this.north.length() >= this.buffer_length <==> this.north.isFull)
-      ensures (this.east.length()  == 0 <==> this.east.isEmpty)  && (this.east.length()  >= this.buffer_length <==> this.east.isFull)
-      ensures (this.south.length() == 0 <==> this.south.isEmpty) && (this.south.length() >= this.buffer_length <==> this.south.isFull)
-      ensures (this.west.length()  == 0 <==> this.west.isEmpty)  && (this.west.length()  >= this.buffer_length <==> this.west.isFull)
-      ensures (this.local.length() == 0 <==> this.local.isEmpty) && (this.local.length() >= this.buffer_length <==> this.local.isFull)
+      modifies this`channels
+      ensures forall i :: i in {N, S, E, W, L} ==> old(this.channels[i].buffer) == this.channels[i].buffer
+      ensures forall i :: i in {N, S, E, W, L} ==> (this.channels[i].length() == 0 <==> this.channels[i].isEmpty) && (this.channels[i].length() >= this.buffer_length <==> this.channels[i].isFull)
     {
-      this.north := this.north.setFlags(this.buffer_length);
-      this.east  := this.east.setFlags(this.buffer_length);
-      this.south := this.south.setFlags(this.buffer_length);
-      this.west  := this.west.setFlags(this.buffer_length);
-      this.local := this.local.setFlags(this.buffer_length);
+      this.channels := [this.channels[N].setFlags(this.buffer_length),
+                        this.channels[E].setFlags(this.buffer_length),
+                        this.channels[S].setFlags(this.buffer_length), 
+                        this.channels[W].setFlags(this.buffer_length),
+                        this.channels[L].setFlags(this.buffer_length)];
     }
 
     method send()
