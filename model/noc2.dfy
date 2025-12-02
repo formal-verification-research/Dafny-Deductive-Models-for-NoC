@@ -1,6 +1,10 @@
 module NoC2 {
   import Std.Collections.Seq
 
+  predicate allUnique<T(==)>(s: seq) {
+    forall i: nat, j: nat | i < |s| && j < |s| && i != j :: s[i] != s[j]
+  }
+
   datatype Channel =
     | Channel(buffer: seq<nat>, isEmpty: bool, isFull: bool)
     {
@@ -428,16 +432,36 @@ module NoC2 {
   datatype NoC = 
   | NoC(dim: nat)
   {
-    method run(buffer_length: nat)
+    method construct(buffer_length: nat) returns (routers: seq<Router>)
       requires dim >= 2
       requires buffer_length > 0
-      decreases *
+      ensures |routers| == dim*dim
+      ensures allUnique(routers)
+      ensures forall j | 0 <= j < dim*dim :: (
+          && fresh(routers[j])
+          && fresh(routers[j].channels)
+          && fresh(routers[j].serviced)
+          && fresh(routers[j].used)
+          && routers[j].id == j
+          && routers[j].dim == this.dim
+          && routers[j].buffer_length == buffer_length
+          && routers[j].channels.north.length() == 0
+          && routers[j].channels.east.length()  == 0
+          && routers[j].channels.south.length() == 0
+          && routers[j].channels.west.length()  == 0
+          && routers[j].channels.local.length() == 0
+          && routers[j].serviced.asSeq() == [false, false, false, false, false]
+          && routers[j].totalUnserviced == 0
+          && routers[j].used.asSeq() == [false, false, false, false, false]
+          && routers[j].priority_list == [North, East, South, West, Local]
+          && routers[j].valid()
+        )
     {
-      var routers: seq<Router> := [];
-
+      routers := [];
       for i := 0 to dim*dim
         invariant 0 <= i <= dim*dim
         invariant |routers| == i
+        invariant allUnique(routers)
         invariant forall j | 0 <= j < i :: (
           && fresh(routers[j])
           && fresh(routers[j].channels)
@@ -461,8 +485,14 @@ module NoC2 {
         var r := new Router(buffer_length, i, this.dim);
         routers := routers + [r];
       }
+    }
 
-      assert {:split_here} |routers| == this.dim*this.dim;
+    method run(buffer_length: nat)
+      requires dim >= 2
+      requires buffer_length > 0
+      decreases *
+    {
+      var routers: seq<Router> := this.construct(buffer_length);
 
       var cycle: nat := 0;
 
@@ -479,6 +509,7 @@ module NoC2 {
 
         for i := 0 to |routers| {
           var x := routers[i].column();
+          assume false;
           var y := routers[i].row();
 
           var neighbors := new ChannelWrapper(null, null, null, null, null);
