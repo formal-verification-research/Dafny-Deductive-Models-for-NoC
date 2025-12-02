@@ -38,6 +38,7 @@ module NoC2 {
     }
 
   type FixedSeq<T> = i: seq<T> | |i| == 5 witness *
+  type BoundedSeq<T> = i: seq<T> | 3 <= |i| <= 5 witness *
 
   datatype Direction =
     | North
@@ -107,12 +108,16 @@ module NoC2 {
     }
 
     method writeByDir(dir: Direction, data: T)
-      modifies this
-      ensures dir != North ==> old(this.north) == this.north
-      ensures dir != East  ==> old(this.east)  == this.east
-      ensures dir != South ==> old(this.south) == this.south
-      ensures dir != West  ==> old(this.west)  == this.west
-      ensures dir != Local ==> old(this.local) == this.local
+      modifies this`north
+      modifies this`east
+      modifies this`south
+      modifies this`west
+      modifies this`local
+      ensures dir != North ==> unchanged(`north)
+      ensures dir != East  ==> unchanged(`east) 
+      ensures dir != South ==> unchanged(`south)
+      ensures dir != West  ==> unchanged(`west) 
+      ensures dir != Local ==> unchanged(`local)
     {
       match dir
       case North => { this.north := data; }
@@ -121,16 +126,36 @@ module NoC2 {
       case West  => { this.west  := data; }
       case Local => { this.local := data; }
     }
+
+    method setAll(data: T)
+      modifies this`north
+      modifies this`east
+      modifies this`south
+      modifies this`west
+      modifies this`local
+      ensures this.north == data
+      ensures this.east == data 
+      ensures this.south == data
+      ensures this.west == data 
+      ensures this.local == data
+    {
+      this.north := data;
+      this.east  := data; 
+      this.south := data;
+      this.west  := data; 
+      this.local := data;
+    }
   }
 
   class Router {
     const id: nat
     const dim: nat
     const buffer_length: nat
-    var channels: ChannelWrapper<Channel>
-    var serviced: ChannelWrapper<bool>
-    var used: ChannelWrapper<bool>
+    const channels: ChannelWrapper<Channel>
+    const serviced: ChannelWrapper<bool>
+    const used: ChannelWrapper<bool>
     var totalUnserviced: nat
+    var priority_list: FixedSeq<Direction>
 
     predicate valid() {
       && this.dim >= 2
@@ -153,6 +178,7 @@ module NoC2 {
       ensures this.serviced.asSeq() == [false, false, false, false, false]
       ensures this.totalUnserviced == 0
       ensures this.used.asSeq() == [false, false, false, false, false]
+      ensures this.priority_list == [North, East, South, West, Local]
       ensures valid()
     {
       this.id := id;
@@ -162,6 +188,7 @@ module NoC2 {
       this.serviced := new ChannelWrapper(false, false, false, false, false);
       this.used := new ChannelWrapper(false, false, false, false, false);
       this.totalUnserviced := 0;
+      this.priority_list := [North, East, South, West, Local];
     }
 
     static method getDestination(id: nat, dim: nat) returns (dest: nat)
@@ -189,6 +216,17 @@ module NoC2 {
       requires dim != 0
     {
       id / dim
+    }
+
+    predicate channelConnected(ch: Direction)
+      requires valid()
+      requires !ch.Local?
+    {
+      match ch
+      case North => this.row() != 0
+      case East => this.column() < dim - 1
+      case South => this.row() < dim - 1
+      case West => this.column() != 0
     }
 
     method generateFlits(cycle: nat)
@@ -234,7 +272,7 @@ module NoC2 {
     method send(other: Router, from: Direction, dir: Direction)
       requires valid()
       requires this.dim == other.dim
-      requires this.id != other.dim
+      requires this.id != other.id
       requires dir != Local
       requires this.channels.fromDir(from).length() > 0
       modifies this.serviced
@@ -243,6 +281,10 @@ module NoC2 {
       modifies this`totalUnserviced
       modifies other.channels
       ensures valid()
+      // ensures unchanged(this`channels)
+      // ensures unchanged(this`used)
+      // ensures unchanged(this`serviced)
+      // ensures unchanged(other`channels)
     {
       var dest_dir := dir.getDestinationDir();
 
@@ -266,7 +308,7 @@ module NoC2 {
     method advanceFlits(other: Router, from: Direction)
       requires valid()
       requires this.dim == other.dim
-      requires this.id != other.dim
+      requires this.id != other.id
       requires this.channels.fromDir(from).length() > 0
       modifies this.serviced
       modifies this.used
@@ -274,6 +316,10 @@ module NoC2 {
       modifies this`totalUnserviced
       modifies other.channels
       ensures valid()
+      // ensures unchanged(this`channels)
+      // ensures unchanged(this`used)
+      // ensures unchanged(this`serviced)
+      // ensures unchanged(other`channels)
     {
       var dest_id := this.channels.fromDir(from).peekFirst();
       var column_shift := Router.column_s(dest_id, this.dim) - this.column();
@@ -288,6 +334,174 @@ module NoC2 {
         this.send(other, from, West);
       } else {
         this.send(other, from, East);
+      }
+    }
+
+    method advanceChannel(other: Router, from: Direction)
+      requires valid()
+      requires this.dim == other.dim
+      requires this.id != other.id
+      requires this.channels.fromDir(from).length() > 0
+      modifies this.serviced
+      modifies this.used
+      modifies this.channels
+      modifies this`totalUnserviced
+      modifies other.channels
+      ensures valid()
+      // ensures unchanged(this`channels)
+      // ensures unchanged(this`used)
+      // ensures unchanged(this`serviced)
+      // ensures unchanged(other`channels)
+    {
+      if (!from.Local? && this.channelConnected(from)) || this.channels.fromDir(from).isEmpty {
+        this.serviced.writeByDir(from, true);
+      } else if (this.channels.fromDir(from).peekFirst() == this.id) {
+        // TODO
+      } else {
+        advanceFlits(other, from);
+      }
+    }
+
+    method advanceRouter(neighbors: ChannelWrapper<Router?>)
+      requires valid()
+      requires forall n: Router? | n in neighbors.asSeq() :: n != null ==> this.dim == n.dim
+      requires forall n: Router? | n in neighbors.asSeq() :: n != null ==> this.id != n.id
+      modifies this.serviced
+      modifies this.used
+      modifies this.channels
+      modifies this`totalUnserviced
+      ensures valid()
+      // ensures unchanged(this`channels)
+      // ensures unchanged(this`used)
+      // ensures unchanged(this`serviced)
+      // ensures neighbors.north != null ==> unchanged(neighbors.north`channels)
+      // ensures neighbors.east  != null ==> unchanged(neighbors.east`channels)
+      // ensures neighbors.south != null ==> unchanged(neighbors.south`channels)
+      // ensures neighbors.west  != null ==> unchanged(neighbors.west`channels)
+      // ensures neighbors.local != null ==> unchanged(neighbors.local`channels)
+    {
+
+    }
+    
+    method updatePriority()
+      modifies this`priority_list
+      modifies this.serviced
+      modifies this.used
+      modifies this`totalUnserviced
+      ensures this.serviced.asSeq() == [false, false, false, false, false]
+      ensures this.used.asSeq() == [false, false, false, false, false]
+      ensures this.totalUnserviced == 0
+    {
+      var priority_list_temp: FixedSeq<Direction> := [North, East, South, West, Local];
+      var serviced_index := 0;
+      var unserviced_index := 0;
+      var i := 0;
+
+      while i < 4
+        invariant 0 <= i <= 4
+        invariant 0 <= serviced_index <= i
+        invariant 0 <= unserviced_index <= i
+      {
+        if this.serviced.fromDir(this.priority_list[i]) {
+          var index := this.totalUnserviced + serviced_index;
+          assume 0 <= index < 4;
+          priority_list_temp := priority_list_temp[index := this.priority_list[i]];
+          serviced_index := serviced_index + 1;
+        } else {
+          var index := unserviced_index;
+          priority_list_temp := priority_list_temp[index := this.priority_list[i]];
+          unserviced_index := unserviced_index + 1;
+        }
+
+        i := i + 1;
+      }
+
+      // if all channels are empty then reset the priority list
+      if Seq.FoldLeft((x, y) => x && y, true, Seq.Map((z: Channel) => z.isEmpty, this.channels.asSeq())) {
+        this.priority_list := [North, East, South, West, Local];
+      } else {
+        this.priority_list := priority_list_temp;
+      }
+
+      // Reset other variables
+      this.serviced.setAll(false);
+      this.used.setAll(false);
+      this.totalUnserviced := 0;
+    }
+  }
+
+  datatype NoC = 
+  | NoC(dim: nat)
+  {
+    method run(buffer_length: nat)
+      requires dim >= 2
+      requires buffer_length > 0
+      decreases *
+    {
+      var routers: seq<Router> := [];
+
+      for i := 0 to dim*dim
+        invariant 0 <= i <= dim*dim
+        invariant |routers| == i
+        invariant forall j | 0 <= j < i :: (
+          && fresh(routers[j])
+          && routers[j].id == j
+          && routers[j].dim == this.dim
+          && routers[j].buffer_length == buffer_length
+          && routers[j].channels.north.length() == 0
+          && routers[j].channels.east.length()  == 0
+          && routers[j].channels.south.length() == 0
+          && routers[j].channels.west.length()  == 0
+          && routers[j].channels.local.length() == 0
+          && routers[j].serviced.asSeq() == [false, false, false, false, false]
+          && routers[j].totalUnserviced == 0
+          && routers[j].used.asSeq() == [false, false, false, false, false]
+          && routers[j].priority_list == [North, East, South, West, Local]
+          && routers[j].valid()
+        )
+      {
+        var r := new Router(buffer_length, i, this.dim);
+        routers := routers + [r];
+      }
+
+      assert |routers| == this.dim*this.dim;
+
+      var cycle: nat := 0;
+
+      while true
+        decreases *
+        invariant 0 <= cycle
+        modifies routers[..]
+      {
+        for i := 0 to |routers| { routers[i].generateFlits(cycle); }
+        for i := 0 to |routers| { routers[i].prepRouter(cycle); }
+
+        for i := 0 to |routers| {
+          var x := routers[i].column();
+          var y := routers[i].row();
+
+          var neighbors := new ChannelWrapper(null, null, null, null, null);
+
+          if (y - 1) >= 0 {
+            var id_north: int := x + (y - 1) * this.dim;
+            neighbors.north := routers[id_north];
+          }
+          if (x - 1) >= 0 {
+            var id_west: int := (x - 1) + y * this.dim;
+            neighbors.west := routers[id_west];
+          }
+          if (x + 1) < this.dim {
+            var id_east: int := (x + 1) + y * this.dim;
+            neighbors.east := routers[id_east];
+          }
+          if (y + 1) < this.dim {
+            var id_south: int := x + (y + 1) * this.dim;
+            neighbors.south := routers[id_south];
+          }
+          routers[i].advanceRouter(neighbors);
+        }
+
+        for i := 0 to |routers| { routers[i].updatePriority(); }
       }
     }
   }
