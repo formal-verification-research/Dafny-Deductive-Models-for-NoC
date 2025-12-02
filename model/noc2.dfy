@@ -170,6 +170,7 @@ module NoC2 {
       ensures this.id == id
       ensures this.dim == dim
       ensures this.buffer_length == buffer_length
+      ensures fresh(this.channels) && fresh(this.serviced) && fresh(this.used)
       ensures this.channels.north.length() == 0
       ensures this.channels.east.length()  == 0
       ensures this.channels.south.length() == 0
@@ -231,10 +232,8 @@ module NoC2 {
 
     method generateFlits(cycle: nat)
       requires valid()
-      requires this.channels.local.length() <= this.buffer_length
       modifies this.channels`local
       ensures old(this.channels.local.buffer) <= this.channels.local.buffer
-      ensures this.channels.local.length() <= this.buffer_length
       ensures valid()
     {
       if cycle % 3 < 3 && |this.channels.local.buffer| < this.buffer_length {
@@ -281,10 +280,6 @@ module NoC2 {
       modifies this`totalUnserviced
       modifies other.channels
       ensures valid()
-      // ensures unchanged(this`channels)
-      // ensures unchanged(this`used)
-      // ensures unchanged(this`serviced)
-      // ensures unchanged(other`channels)
     {
       var dest_dir := dir.getDestinationDir();
 
@@ -445,6 +440,9 @@ module NoC2 {
         invariant |routers| == i
         invariant forall j | 0 <= j < i :: (
           && fresh(routers[j])
+          && fresh(routers[j].channels)
+          && fresh(routers[j].serviced)
+          && fresh(routers[j].used)
           && routers[j].id == j
           && routers[j].dim == this.dim
           && routers[j].buffer_length == buffer_length
@@ -464,7 +462,7 @@ module NoC2 {
         routers := routers + [r];
       }
 
-      assert |routers| == this.dim*this.dim;
+      assert {:split_here} |routers| == this.dim*this.dim;
 
       var cycle: nat := 0;
 
@@ -472,6 +470,9 @@ module NoC2 {
         decreases *
         invariant 0 <= cycle
         modifies routers[..]
+        modifies (set x | x in routers :: x.serviced)
+        modifies (set x | x in routers :: x.used)
+        modifies (set x | x in routers :: x.channels)
       {
         for i := 0 to |routers| { routers[i].generateFlits(cycle); }
         for i := 0 to |routers| { routers[i].prepRouter(cycle); }
@@ -500,7 +501,7 @@ module NoC2 {
           }
           routers[i].advanceRouter(neighbors);
         }
-
+        
         for i := 0 to |routers| { routers[i].updatePriority(); }
       }
     }
