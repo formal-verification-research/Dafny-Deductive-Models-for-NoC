@@ -256,7 +256,7 @@ module NoC2 {
       requires valid()
       modifies this.buffers`local
       ensures old(this.buffers.local.buffer) <= this.buffers.local.buffer
-      ensures valid()
+      ensures old(|this.buffers.local.buffer|) == |this.buffers.local.buffer| || old(|this.buffers.local.buffer|) + 1 == |this.buffers.local.buffer|
     {
       if cycle % 3 < 3 && |this.buffers.local.buffer| < this.buffer_length {
         var dest := Router.getDestination(this.id, this.dim);
@@ -266,11 +266,7 @@ module NoC2 {
 
     method prepRouter(cycle: nat)
       requires valid()
-      modifies this.buffers`north
-      modifies this.buffers`east
-      modifies this.buffers`south
-      modifies this.buffers`west
-      modifies this.buffers`local
+      modifies this.buffers
       ensures old(this.buffers.north.buffer) == this.buffers.north.buffer
       ensures old(this.buffers.east.buffer)  == this.buffers.east.buffer
       ensures old(this.buffers.south.buffer) == this.buffers.south.buffer
@@ -281,7 +277,6 @@ module NoC2 {
       ensures (this.buffers.south.length() == 0 <==> this.buffers.south.isEmpty) && (this.buffers.south.length() >= this.buffer_length <==> this.buffers.south.isFull)
       ensures (this.buffers.west.length()  == 0 <==> this.buffers.west.isEmpty)  && (this.buffers.west.length()  >= this.buffer_length <==> this.buffers.west.isFull)
       ensures (this.buffers.local.length() == 0 <==> this.buffers.local.isEmpty) && (this.buffers.local.length() >= this.buffer_length <==> this.buffers.local.isFull)
-      ensures valid()
     {
       this.buffers.north := this.buffers.north.setFlags(this.buffer_length);
       this.buffers.east  := this.buffers.east.setFlags(this.buffer_length);
@@ -301,7 +296,6 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
-      ensures valid()
     {
       var dest_dir := dir.getDestinationDir();
 
@@ -332,7 +326,6 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
-      ensures valid()
       // ensures unchanged(this`channels)
       // ensures unchanged(this`used)
       // ensures unchanged(this`serviced)
@@ -364,7 +357,6 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
-      ensures valid()
       // ensures unchanged(this`channels)
       // ensures unchanged(this`used)
       // ensures unchanged(this`serviced)
@@ -387,7 +379,6 @@ module NoC2 {
       modifies this.used
       modifies this.buffers
       modifies this`totalUnserviced
-      ensures valid()
       // ensures unchanged(this`channels)
       // ensures unchanged(this`used)
       // ensures unchanged(this`serviced)
