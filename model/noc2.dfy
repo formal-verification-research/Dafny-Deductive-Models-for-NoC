@@ -326,10 +326,6 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
-      // ensures unchanged(this`channels)
-      // ensures unchanged(this`used)
-      // ensures unchanged(this`serviced)
-      // ensures unchanged(other`channels)
     {
       var dest_id := this.buffers.fromDir(from).peekFirst();
       var column_shift := Router.column_s(dest_id, this.dim) - this.column();
@@ -357,10 +353,6 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
-      // ensures unchanged(this`channels)
-      // ensures unchanged(this`used)
-      // ensures unchanged(this`serviced)
-      // ensures unchanged(other`channels)
     {
       if (!from.Local? && this.channelConnected(from)) || this.buffers.fromDir(from).isEmpty {
         this.serviced.writeByDir(from, true);
@@ -379,14 +371,6 @@ module NoC2 {
       modifies this.used
       modifies this.buffers
       modifies this`totalUnserviced
-      // ensures unchanged(this`channels)
-      // ensures unchanged(this`used)
-      // ensures unchanged(this`serviced)
-      // ensures neighbors.north != null ==> unchanged(neighbors.north`channels)
-      // ensures neighbors.east  != null ==> unchanged(neighbors.east`channels)
-      // ensures neighbors.south != null ==> unchanged(neighbors.south`channels)
-      // ensures neighbors.west  != null ==> unchanged(neighbors.west`channels)
-      // ensures neighbors.local != null ==> unchanged(neighbors.local`channels)
     {
 
     }
