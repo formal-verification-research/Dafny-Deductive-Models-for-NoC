@@ -5,12 +5,12 @@ module NoC2 {
     forall i: nat, j: nat | i < |s| && j < |s| && i != j :: s[i] != s[j]
   }
 
-  datatype Channel =
-    | Channel(buffer: seq<nat>, isEmpty: bool, isFull: bool)
+  datatype Buffer =
+    | Buffer(buffer: seq<nat>, isEmpty: bool, isFull: bool)
     {
-      static function init(): Channel
+      static function init(): Buffer
       {
-        Channel([], true, false)
+        Buffer([], true, false)
       }
 
       function length(): nat
@@ -18,20 +18,20 @@ module NoC2 {
         |this.buffer|
       }
 
-      function insert(id: nat): Channel
+      function insert(id: nat): Buffer
       {
-        Channel(this.buffer + [id], this.isEmpty, this.isFull)
+        Buffer(this.buffer + [id], this.isEmpty, this.isFull)
       }
 
-      function setFlags(buffer_length: nat): Channel
+      function setFlags(buffer_length: nat): Buffer
       {
-        Channel(this.buffer, this.length() == 0, this.length() >= buffer_length)
+        Buffer(this.buffer, this.length() == 0, this.length() >= buffer_length)
       }
 
-      function dropFirst(): Channel
+      function dropFirst(): Buffer
         requires this.length() > 0
       {
-        Channel(Seq.DropFirst(this.buffer), this.isEmpty, this.isFull)
+        Buffer(Seq.DropFirst(this.buffer), this.isEmpty, this.isFull)
       }
 
       function peekFirst(): nat
@@ -42,7 +42,6 @@ module NoC2 {
     }
 
   type FixedSeq<T> = i: seq<T> | |i| == 5 witness *
-  type BoundedSeq<T> = i: seq<T> | 3 <= |i| <= 5 witness *
 
   datatype Direction =
     | North
@@ -62,13 +61,7 @@ module NoC2 {
       }
     }
 
-  const N := 0
-  const E := 1
-  const S := 2
-  const W := 3
-  const L := 4
-
-  class ChannelWrapper<T> {
+  class DirectionWrapper<T> {
     var north: T
     var east:  T
     var south: T
@@ -131,7 +124,7 @@ module NoC2 {
       case Local => { this.local := data; }
     }
 
-    method setAll(data: T)
+    method setAllTo(data: T)
       modifies this`north
       modifies this`east
       modifies this`south
@@ -155,9 +148,9 @@ module NoC2 {
     const id: nat
     const dim: nat
     const buffer_length: nat
-    const channels: ChannelWrapper<Channel>
-    const serviced: ChannelWrapper<bool>
-    const used: ChannelWrapper<bool>
+    const buffers: DirectionWrapper<Buffer>
+    const serviced: DirectionWrapper<bool>
+    const used: DirectionWrapper<bool>
     var totalUnserviced: nat
     var priority_list: FixedSeq<Direction>
 
@@ -174,12 +167,12 @@ module NoC2 {
       ensures this.id == id
       ensures this.dim == dim
       ensures this.buffer_length == buffer_length
-      ensures fresh(this.channels) && fresh(this.serviced) && fresh(this.used)
-      ensures this.channels.north.length() == 0
-      ensures this.channels.east.length()  == 0
-      ensures this.channels.south.length() == 0
-      ensures this.channels.west.length()  == 0
-      ensures this.channels.local.length() == 0
+      ensures fresh(this.buffers) && fresh(this.serviced) && fresh(this.used)
+      ensures this.buffers.north.length() == 0
+      ensures this.buffers.east.length()  == 0
+      ensures this.buffers.south.length() == 0
+      ensures this.buffers.west.length()  == 0
+      ensures this.buffers.local.length() == 0
       ensures this.serviced.asSeq() == [false, false, false, false, false]
       ensures this.totalUnserviced == 0
       ensures this.used.asSeq() == [false, false, false, false, false]
@@ -189,9 +182,9 @@ module NoC2 {
       this.id := id;
       this.dim := dim;
       this.buffer_length := buffer_length;
-      this.channels := new ChannelWrapper(Channel.init(), Channel.init(), Channel.init(), Channel.init(), Channel.init());
-      this.serviced := new ChannelWrapper(false, false, false, false, false);
-      this.used := new ChannelWrapper(false, false, false, false, false);
+      this.buffers := new DirectionWrapper(Buffer.init(), Buffer.init(), Buffer.init(), Buffer.init(), Buffer.init());
+      this.serviced := new DirectionWrapper(false, false, false, false, false);
+      this.used := new DirectionWrapper(false, false, false, false, false);
       this.totalUnserviced := 0;
       this.priority_list := [North, East, South, West, Local];
     }
@@ -219,7 +212,6 @@ module NoC2 {
     function row(): nat
       requires valid()
     {
-      assert this.id < (this.dim*this.dim);
       Router.row_s(this.id, this.dim)
     }
 
@@ -244,6 +236,11 @@ module NoC2 {
       id / dim
     }
 
+    lemma idFromCoord()
+      requires valid()
+      ensures this.column() + this.row()*this.dim == id
+    {}
+
     predicate channelConnected(ch: Direction)
       requires valid()
       requires !ch.Local?
@@ -257,40 +254,40 @@ module NoC2 {
 
     method generateFlits(cycle: nat)
       requires valid()
-      modifies this.channels`local
-      ensures old(this.channels.local.buffer) <= this.channels.local.buffer
+      modifies this.buffers`local
+      ensures old(this.buffers.local.buffer) <= this.buffers.local.buffer
       ensures valid()
     {
-      if cycle % 3 < 3 && |this.channels.local.buffer| < this.buffer_length {
+      if cycle % 3 < 3 && |this.buffers.local.buffer| < this.buffer_length {
         var dest := Router.getDestination(this.id, this.dim);
-        this.channels.local := this.channels.local.insert(dest);
+        this.buffers.local := this.buffers.local.insert(dest);
       }
     }
 
     method prepRouter(cycle: nat)
       requires valid()
-      modifies this.channels`north
-      modifies this.channels`east
-      modifies this.channels`south
-      modifies this.channels`west
-      modifies this.channels`local
-      ensures old(this.channels.north.buffer) == this.channels.north.buffer
-      ensures old(this.channels.east.buffer)  == this.channels.east.buffer
-      ensures old(this.channels.south.buffer) == this.channels.south.buffer
-      ensures old(this.channels.west.buffer)  == this.channels.west.buffer
-      ensures old(this.channels.local.buffer) == this.channels.local.buffer
-      ensures (this.channels.north.length() == 0 <==> this.channels.north.isEmpty) && (this.channels.north.length() >= this.buffer_length <==> this.channels.north.isFull)
-      ensures (this.channels.east.length()  == 0 <==> this.channels.east.isEmpty)  && (this.channels.east.length()  >= this.buffer_length <==> this.channels.east.isFull)
-      ensures (this.channels.south.length() == 0 <==> this.channels.south.isEmpty) && (this.channels.south.length() >= this.buffer_length <==> this.channels.south.isFull)
-      ensures (this.channels.west.length()  == 0 <==> this.channels.west.isEmpty)  && (this.channels.west.length()  >= this.buffer_length <==> this.channels.west.isFull)
-      ensures (this.channels.local.length() == 0 <==> this.channels.local.isEmpty) && (this.channels.local.length() >= this.buffer_length <==> this.channels.local.isFull)
+      modifies this.buffers`north
+      modifies this.buffers`east
+      modifies this.buffers`south
+      modifies this.buffers`west
+      modifies this.buffers`local
+      ensures old(this.buffers.north.buffer) == this.buffers.north.buffer
+      ensures old(this.buffers.east.buffer)  == this.buffers.east.buffer
+      ensures old(this.buffers.south.buffer) == this.buffers.south.buffer
+      ensures old(this.buffers.west.buffer)  == this.buffers.west.buffer
+      ensures old(this.buffers.local.buffer) == this.buffers.local.buffer
+      ensures (this.buffers.north.length() == 0 <==> this.buffers.north.isEmpty) && (this.buffers.north.length() >= this.buffer_length <==> this.buffers.north.isFull)
+      ensures (this.buffers.east.length()  == 0 <==> this.buffers.east.isEmpty)  && (this.buffers.east.length()  >= this.buffer_length <==> this.buffers.east.isFull)
+      ensures (this.buffers.south.length() == 0 <==> this.buffers.south.isEmpty) && (this.buffers.south.length() >= this.buffer_length <==> this.buffers.south.isFull)
+      ensures (this.buffers.west.length()  == 0 <==> this.buffers.west.isEmpty)  && (this.buffers.west.length()  >= this.buffer_length <==> this.buffers.west.isFull)
+      ensures (this.buffers.local.length() == 0 <==> this.buffers.local.isEmpty) && (this.buffers.local.length() >= this.buffer_length <==> this.buffers.local.isFull)
       ensures valid()
     {
-      this.channels.north := this.channels.north.setFlags(this.buffer_length);
-      this.channels.east  := this.channels.east.setFlags(this.buffer_length);
-      this.channels.south := this.channels.south.setFlags(this.buffer_length);
-      this.channels.west  := this.channels.west.setFlags(this.buffer_length);
-      this.channels.local := this.channels.local.setFlags(this.buffer_length);
+      this.buffers.north := this.buffers.north.setFlags(this.buffer_length);
+      this.buffers.east  := this.buffers.east.setFlags(this.buffer_length);
+      this.buffers.south := this.buffers.south.setFlags(this.buffer_length);
+      this.buffers.west  := this.buffers.west.setFlags(this.buffer_length);
+      this.buffers.local := this.buffers.local.setFlags(this.buffer_length);
     }
 
     method send(other: Router, from: Direction, dir: Direction)
@@ -298,24 +295,24 @@ module NoC2 {
       requires this.dim == other.dim
       requires this.id != other.id
       requires dir != Local
-      requires this.channels.fromDir(from).length() > 0
+      requires this.buffers.fromDir(from).length() > 0
       modifies this.serviced
       modifies this.used
-      modifies this.channels
+      modifies this.buffers
       modifies this`totalUnserviced
-      modifies other.channels
+      modifies other.buffers
       ensures valid()
     {
       var dest_dir := dir.getDestinationDir();
 
-      if !other.channels.fromDir(dest_dir).isFull && !this.used.fromDir(dir) {
+      if !other.buffers.fromDir(dest_dir).isFull && !this.used.fromDir(dir) {
         // Send packet from source
-        var from_channel := this.channels.fromDir(from);
+        var from_channel := this.buffers.fromDir(from);
         var packet := from_channel.peekFirst();
-        this.channels.writeByDir(from, from_channel.dropFirst());
+        this.buffers.writeByDir(from, from_channel.dropFirst());
 
         // recieve packet at destination
-        other.channels.writeByDir(dest_dir, other.channels.fromDir(dest_dir).insert(packet));
+        other.buffers.writeByDir(dest_dir, other.buffers.fromDir(dest_dir).insert(packet));
 
         // mark used
         this.used.writeByDir(dir, true);
@@ -329,19 +326,19 @@ module NoC2 {
       requires valid()
       requires this.dim == other.dim
       requires this.id != other.id
-      requires this.channels.fromDir(from).length() > 0
+      requires this.buffers.fromDir(from).length() > 0
       modifies this.serviced
       modifies this.used
-      modifies this.channels
+      modifies this.buffers
       modifies this`totalUnserviced
-      modifies other.channels
+      modifies other.buffers
       ensures valid()
       // ensures unchanged(this`channels)
       // ensures unchanged(this`used)
       // ensures unchanged(this`serviced)
       // ensures unchanged(other`channels)
     {
-      var dest_id := this.channels.fromDir(from).peekFirst();
+      var dest_id := this.buffers.fromDir(from).peekFirst();
       var column_shift := Router.column_s(dest_id, this.dim) - this.column();
 
       if column_shift == 0 {
@@ -361,34 +358,34 @@ module NoC2 {
       requires valid()
       requires this.dim == other.dim
       requires this.id != other.id
-      requires this.channels.fromDir(from).length() > 0
+      requires this.buffers.fromDir(from).length() > 0
       modifies this.serviced
       modifies this.used
-      modifies this.channels
+      modifies this.buffers
       modifies this`totalUnserviced
-      modifies other.channels
+      modifies other.buffers
       ensures valid()
       // ensures unchanged(this`channels)
       // ensures unchanged(this`used)
       // ensures unchanged(this`serviced)
       // ensures unchanged(other`channels)
     {
-      if (!from.Local? && this.channelConnected(from)) || this.channels.fromDir(from).isEmpty {
+      if (!from.Local? && this.channelConnected(from)) || this.buffers.fromDir(from).isEmpty {
         this.serviced.writeByDir(from, true);
-      } else if (this.channels.fromDir(from).peekFirst() == this.id) {
+      } else if (this.buffers.fromDir(from).peekFirst() == this.id) {
         // TODO
       } else {
         advanceFlits(other, from);
       }
     }
 
-    method advanceRouter(neighbors: ChannelWrapper<Router?>)
+    method advanceRouter(neighbors: DirectionWrapper<Router?>)
       requires valid()
       requires forall n: Router? | n in neighbors.asSeq() :: n != null ==> this.dim == n.dim
       requires forall n: Router? | n in neighbors.asSeq() :: n != null ==> this.id != n.id
       modifies this.serviced
       modifies this.used
-      modifies this.channels
+      modifies this.buffers
       modifies this`totalUnserviced
       ensures valid()
       // ensures unchanged(this`channels)
@@ -437,15 +434,15 @@ module NoC2 {
       }
 
       // if all channels are empty then reset the priority list
-      if Seq.FoldLeft((x, y) => x && y, true, Seq.Map((z: Channel) => z.isEmpty, this.channels.asSeq())) {
+      if Seq.FoldLeft((x, y) => x && y, true, Seq.Map((z: Buffer) => z.isEmpty, this.buffers.asSeq())) {
         this.priority_list := [North, East, South, West, Local];
       } else {
         this.priority_list := priority_list_temp;
       }
 
       // Reset other variables
-      this.serviced.setAll(false);
-      this.used.setAll(false);
+      this.serviced.setAllTo(false);
+      this.used.setAllTo(false);
       this.totalUnserviced := 0;
     }
   }
@@ -538,17 +535,17 @@ module NoC2 {
       ensures allUnique(routers)
       ensures forall j | 0 <= j < dim*dim :: (
           && fresh(routers[j])
-          && fresh(routers[j].channels)
+          && fresh(routers[j].buffers)
           && fresh(routers[j].serviced)
           && fresh(routers[j].used)
           && routers[j].id == j
           && routers[j].dim == this.dim
           && routers[j].buffer_length == buffer_length
-          && routers[j].channels.north.length() == 0
-          && routers[j].channels.east.length()  == 0
-          && routers[j].channels.south.length() == 0
-          && routers[j].channels.west.length()  == 0
-          && routers[j].channels.local.length() == 0
+          && routers[j].buffers.north.length() == 0
+          && routers[j].buffers.east.length()  == 0
+          && routers[j].buffers.south.length() == 0
+          && routers[j].buffers.west.length()  == 0
+          && routers[j].buffers.local.length() == 0
           && routers[j].serviced.asSeq() == [false, false, false, false, false]
           && routers[j].totalUnserviced == 0
           && routers[j].used.asSeq() == [false, false, false, false, false]
@@ -563,17 +560,17 @@ module NoC2 {
         invariant allUnique(routers)
         invariant forall j | 0 <= j < i :: (
           && fresh(routers[j])
-          && fresh(routers[j].channels)
+          && fresh(routers[j].buffers)
           && fresh(routers[j].serviced)
           && fresh(routers[j].used)
           && routers[j].id == j
           && routers[j].dim == this.dim
           && routers[j].buffer_length == buffer_length
-          && routers[j].channels.north.length() == 0
-          && routers[j].channels.east.length()  == 0
-          && routers[j].channels.south.length() == 0
-          && routers[j].channels.west.length()  == 0
-          && routers[j].channels.local.length() == 0
+          && routers[j].buffers.north.length() == 0
+          && routers[j].buffers.east.length()  == 0
+          && routers[j].buffers.south.length() == 0
+          && routers[j].buffers.west.length()  == 0
+          && routers[j].buffers.local.length() == 0
           && routers[j].serviced.asSeq() == [false, false, false, false, false]
           && routers[j].totalUnserviced == 0
           && routers[j].used.asSeq() == [false, false, false, false, false]
@@ -601,7 +598,7 @@ module NoC2 {
         modifies routers[..]
         modifies (set x | x in routers :: x.serviced)
         modifies (set x | x in routers :: x.used)
-        modifies (set x | x in routers :: x.channels)
+        modifies (set x | x in routers :: x.buffers)
       {
         for i := 0 to |routers| { routers[i].generateFlits(cycle); }
         for i := 0 to |routers| { routers[i].prepRouter(cycle); }
@@ -616,11 +613,38 @@ module NoC2 {
             routers[i].rowBound();
           }
 
-          var neighbors := new ChannelWrapper(null, null, null, null, null);
+          var neighbors := new DirectionWrapper(null, null, null, null, null);
 
           if 0 <= (y - 1) < this.dim {
             var id_north := NoC.northNeighborId(x, y, this.dim);
             neighbors.north := routers[id_north];
+            assert id_north != i by {
+              calc == {
+                id_north;
+                x + (y - 1) * this.dim;
+                routers[i].column() + (routers[i].row() - 1) * this.dim;
+                (routers[i].id % this.dim) + ((routers[i].id / this.dim) - 1) * this.dim;
+                (i % this.dim) + ((i / this.dim) - 1) * this.dim;
+              }
+              calc == {
+                i;
+                routers[i].id;
+                {routers[i].idFromCoord();}
+                routers[i].column() + routers[i].row() * this.dim;
+                (routers[i].id % this.dim) + (routers[i].id / this.dim) * this.dim;
+                (i % this.dim) + (i / this.dim) * this.dim;
+              }
+              assume false;
+              calc {
+                id_north;
+              ==
+                (i % this.dim) + ((i / this.dim) - 1) * this.dim;
+              !=
+                (i % this.dim) + (i / this.dim) * this.dim;
+              ==
+                i;
+              }
+            }
           }
           if 0 <= (x - 1) < this.dim {
             var id_west := NoC.westNeighborId(x, y, this.dim);
@@ -634,8 +658,8 @@ module NoC2 {
             var id_south := NoC.southNeighborId(x, y, this.dim);
             neighbors.south := routers[id_south];
           }
-          routers[i].advanceRouter(neighbors);
           assume false;
+          routers[i].advanceRouter(neighbors);
         }
         
         for i := 0 to |routers| { routers[i].updatePriority(); }
