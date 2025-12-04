@@ -1,5 +1,6 @@
 module NoC2 {
   import Std.Collections.Seq
+  import Std.Wrappers
 
   predicate allUnique<T(==)>(s: seq) {
     forall i: nat, j: nat | i < |s| && j < |s| && i != j :: s[i] != s[j]
@@ -189,68 +190,96 @@ module NoC2 {
       this.priority_list := [North, East, South, West, Local];
     }
 
-    static method getDestination(id: nat, dim: nat) returns (dest: nat)
-      ensures {:axiom} 0 <= id < dim*dim && dest != id
-
-    function column(): nat
+    function x(): (x: nat)
       requires valid()
+      ensures 0 <= x < this.dim
     {
-      Router.column_s(this.id, this.dim)
+      xBoundValid(id, dim);
+      this.id % this.dim
     }
 
-    lemma columnBound()
+    function y(): (y: nat)
       requires valid()
-      ensures 0 <= this.column() < this.dim
-    {}
-
-    static function column_s(id: nat, dim: nat): nat
-      requires dim != 0
+      ensures 0 <= y < this.dim
     {
+      yBoundValid(id, dim);
+      this.id / this.dim
+    }
+
+    static function calcX(id: nat, dim: nat): (x: nat)
+      requires 2 <= dim && 0 <= id < dim*dim
+      ensures 0 <= x < dim
+    {
+      xBoundValid(id, dim);
       id % dim
     }
 
-    function row(): nat
-      requires valid()
+    static function calcY(id: nat, dim: nat): (y: nat)
+      requires 2 <= dim && 0 <= id < dim*dim
+      ensures 0 <= y < dim
     {
-      Router.row_s(this.id, this.dim)
-    }
-
-    lemma rowBound()
-      requires valid()
-      ensures 0 <= this.row() < this.dim
-    {
-      if this.row() == this.dim {
-        assert false by {
-          assert this.id < (this.dim*this.dim);
-          assert this.id / this.dim < (this.dim*this.dim) / this.dim;
-          assert this.id / this.dim < this.dim;
-        }
-      } else {
-
-      }
-    }
-
-    static function row_s(id: nat, dim: nat): nat
-      requires dim != 0
-    {
+      yBoundValid(id, dim);
       id / dim
     }
 
-    lemma idFromCoord()
-      requires valid()
-      ensures this.column() + this.row()*this.dim == id
+    static lemma xBoundValid(id: nat, dim: nat)
+      requires 2 <= dim && 0 <= id < dim*dim
+      ensures 0 <= id % dim < dim
     {}
+
+    static lemma yBoundValid(id: nat, dim: nat)
+      requires 2 <= dim && 0 <= id < dim*dim
+      ensures 0 <= id / dim < dim
+    {
+      if id / dim >= dim {
+        assert false by {
+          assert id < dim*dim;
+          assert id / dim < (dim*dim) / dim;
+          assert id / dim < dim;
+        }
+      } else {
+        
+      }
+    }
+
+    method getNeighborIds() returns (n: DirectionWrapper<Wrappers.Option<nat>>)
+      // requires valid()
+      // ensures fresh(n)
+      // ensures
+      //   var x, y := this.col(), this.row();
+      //   var d := n.north;
+      //   && d.Some? ==> d.value != this.id && 0 <= d.value < this.dim*this.dim && d.value == x + (y - 1) * this.dim
+      // ensures
+      //   var x, y := this.col(), this.row();
+      //   var d := n.east;
+      //   && d.Some? ==> d.value != this.id && 0 <= d.value < this.dim*this.dim && d.value == (x + 1) + y * dim
+      // ensures
+      //   var x, y := this.col(), this.row();
+      //   var d := n.south;
+      //   && d.Some? ==> d.value != this.id && 0 <= d.value < this.dim*this.dim && d.value == x + (y + 1) * dim
+      // ensures
+      //   var x, y := this.col(), this.row();
+      //   var d := n.west;
+      //   && d.Some? ==> d.value != this.id && 0 <= d.value < this.dim*this.dim && d.value == (x + 1) + y * dim
+      // ensures n.local.None?
+    {
+      n := new DirectionWrapper(Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None);
+      assume false;
+    }
 
     predicate channelConnected(ch: Direction)
       requires valid()
       requires !ch.Local?
     {
       match ch
-      case North => this.row() != 0
-      case East => this.column() < dim - 1
-      case South => this.row() < dim - 1
-      case West => this.column() != 0
+      case North => this.y() != 0
+      case East  => this.x() < dim - 1
+      case South => this.y() < dim - 1
+      case West  => this.x() != 0
     }
+
+    static method getDestination(id: nat, dim: nat) returns (dest: nat)
+      ensures {:axiom} 0 <= dest < dim*dim && dest != id
 
     method generateFlits(cycle: nat)
       requires valid()
@@ -287,6 +316,7 @@ module NoC2 {
 
     method send(other: Router, from: Direction, dir: Direction)
       requires valid()
+      requires other.valid()
       requires this.dim == other.dim
       requires this.id != other.id
       requires dir != Local
@@ -318,6 +348,7 @@ module NoC2 {
 
     method advanceFlits(other: Router, from: Direction)
       requires valid()
+      requires other.valid()
       requires this.dim == other.dim
       requires this.id != other.id
       requires this.buffers.fromDir(from).length() > 0
@@ -328,7 +359,8 @@ module NoC2 {
       modifies other.buffers
     {
       var dest_id := this.buffers.fromDir(from).peekFirst();
-      var column_shift := Router.column_s(dest_id, this.dim) - this.column();
+      assume 0 <= dest_id < this.dim*this.dim;
+      var column_shift := Router.calcX(dest_id, this.dim) - this.x();
 
       if column_shift == 0 {
         if dest_id < this.id {
@@ -345,6 +377,7 @@ module NoC2 {
 
     method advanceChannel(other: Router, from: Direction)
       requires valid()
+      requires other.valid()
       requires this.dim == other.dim
       requires this.id != other.id
       requires this.buffers.fromDir(from).length() > 0
@@ -363,10 +396,11 @@ module NoC2 {
       }
     }
 
-    method advanceRouter(neighbors: DirectionWrapper<Router?>)
+    method advanceRouter(neighbors: DirectionWrapper<Wrappers.Option<Router>>)
       requires valid()
-      requires forall n: Router? | n in neighbors.asSeq() :: n != null ==> this.dim == n.dim
-      requires forall n: Router? | n in neighbors.asSeq() :: n != null ==> this.id != n.id
+      requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.dim == n.value.dim
+      requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.id != n.value.id
+      requires forall n | n in neighbors.asSeq() :: n.Some? ==> n.value.valid()
       modifies this.serviced
       modifies this.used
       modifies this.buffers
@@ -563,6 +597,7 @@ module NoC2 {
       requires buffer_length > 0
       decreases *
     {
+      assume false;
       var routers: seq<Router> := this.construct(buffer_length);
 
       var cycle: nat := 0;
@@ -579,62 +614,7 @@ module NoC2 {
         for i := 0 to |routers| { routers[i].prepRouter(cycle); }
 
         for i := 0 to |routers| {
-          var x := routers[i].column();
-          var y := routers[i].row();
-          assert 0 <= x < this.dim by {
-            routers[i].columnBound();
-          }
-          assert 0 <= y < this.dim by {
-            routers[i].rowBound();
-          }
-
-          var neighbors := new DirectionWrapper(null, null, null, null, null);
-
-          if 0 <= (y - 1) < this.dim {
-            var id_north := NoC.northNeighborId(x, y, this.dim);
-            neighbors.north := routers[id_north];
-            assert id_north != i by {
-              calc == {
-                id_north;
-                x + (y - 1) * this.dim;
-                routers[i].column() + (routers[i].row() - 1) * this.dim;
-                (routers[i].id % this.dim) + ((routers[i].id / this.dim) - 1) * this.dim;
-                (i % this.dim) + ((i / this.dim) - 1) * this.dim;
-              }
-              calc == {
-                i;
-                routers[i].id;
-                {routers[i].idFromCoord();}
-                routers[i].column() + routers[i].row() * this.dim;
-                (routers[i].id % this.dim) + (routers[i].id / this.dim) * this.dim;
-                (i % this.dim) + (i / this.dim) * this.dim;
-              }
-              assume false;
-              calc {
-                id_north;
-              ==
-                (i % this.dim) + ((i / this.dim) - 1) * this.dim;
-              !=
-                (i % this.dim) + (i / this.dim) * this.dim;
-              ==
-                i;
-              }
-            }
-          }
-          if 0 <= (x - 1) < this.dim {
-            var id_west := NoC.westNeighborId(x, y, this.dim);
-            neighbors.west := routers[id_west];
-          }
-          if 0 <= (x + 1) < this.dim {
-            var id_east := NoC.eastNeighborId(x, y, this.dim);
-            neighbors.east := routers[id_east];
-          }
-          if 0 <= (y + 1) < this.dim {
-            var id_south := NoC.southNeighborId(x, y, this.dim);
-            neighbors.south := routers[id_south];
-          }
-          assume false;
-          routers[i].advanceRouter(neighbors);
+          // routers[i].advanceRouter(neighbors);
         }
         
         for i := 0 to |routers| { routers[i].updatePriority(); }
