@@ -192,33 +192,25 @@ module NoC2 {
 
     function x(): (x: nat)
       requires valid()
-      ensures 0 <= x < this.dim
     {
-      xBoundValid(id, dim);
       this.id % this.dim
     }
 
     function y(): (y: nat)
       requires valid()
-      ensures 0 <= y < this.dim
     {
-      yBoundValid(id, dim);
       this.id / this.dim
     }
 
     static function calcX(id: nat, dim: nat): (x: nat)
       requires 2 <= dim && 0 <= id < dim*dim
-      ensures 0 <= x < dim
     {
-      xBoundValid(id, dim);
       id % dim
     }
 
     static function calcY(id: nat, dim: nat): (y: nat)
       requires 2 <= dim && 0 <= id < dim*dim
-      ensures 0 <= y < dim
     {
-      yBoundValid(id, dim);
       id / dim
     }
 
@@ -242,29 +234,62 @@ module NoC2 {
       }
     }
 
+    predicate isValidId(id: int) {
+      0 <= id < this.dim*this.dim
+    }
+
+    predicate isValidNeighborId(id: int) {
+      && isValidId(id)
+      && id != this.id
+    }
+
     method getNeighborIds() returns (n: DirectionWrapper<Wrappers.Option<nat>>)
-      // requires valid()
-      // ensures fresh(n)
-      // ensures
-      //   var x, y := this.col(), this.row();
-      //   var d := n.north;
-      //   && d.Some? ==> d.value != this.id && 0 <= d.value < this.dim*this.dim && d.value == x + (y - 1) * this.dim
-      // ensures
-      //   var x, y := this.col(), this.row();
-      //   var d := n.east;
-      //   && d.Some? ==> d.value != this.id && 0 <= d.value < this.dim*this.dim && d.value == (x + 1) + y * dim
-      // ensures
-      //   var x, y := this.col(), this.row();
-      //   var d := n.south;
-      //   && d.Some? ==> d.value != this.id && 0 <= d.value < this.dim*this.dim && d.value == x + (y + 1) * dim
-      // ensures
-      //   var x, y := this.col(), this.row();
-      //   var d := n.west;
-      //   && d.Some? ==> d.value != this.id && 0 <= d.value < this.dim*this.dim && d.value == (x + 1) + y * dim
-      // ensures n.local.None?
+      requires valid()
+      ensures fresh(n)
+      ensures n.local.None?
+      ensures
+        var id := this.x() + (this.y() - 1) * this.dim;
+        && (isValidNeighborId(id) ==> n.north.Some? && n.north.value == id)
+        && (!isValidNeighborId(id) ==> n.north.None?)
+      ensures
+        var id := (this.x() + 1) + this.y() * this.dim;
+        && (isValidNeighborId(id) ==> n.east.Some? && n.east.value == id)
+        && (!isValidNeighborId(id) ==> n.east.None?)
+      ensures
+        var id := this.x() + (this.y() + 1) * this.dim;
+        && (isValidNeighborId(id) ==> n.south.Some? && n.south.value == id)
+        && (!isValidNeighborId(id) ==> n.south.None?)
+      ensures
+        var id := (this.x() - 1) + this.y() * this.dim;
+        && (isValidNeighborId(id) ==> n.west.Some? && n.west.value == id)
+        && (!isValidNeighborId(id) ==> n.west.None?)
     {
       n := new DirectionWrapper(Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None);
-      assume false;
+      
+      // North
+      var id_n := this.x() + (this.y() - 1) * this.dim;
+      if isValidNeighborId(id_n) {
+        n.north := Wrappers.Option.Some(id_n);
+      }
+
+      // East
+      var id_e := (this.x() + 1) + this.y() * this.dim;
+      if isValidNeighborId(id_e) {
+        n.east := Wrappers.Option.Some(id_e);
+      }
+
+      // South
+      var id_s := this.x() + (this.y() - 1) * this.dim;
+      if isValidNeighborId(id_s) {
+        n.south := Wrappers.Option.Some(id_s);
+      }
+      assert {:split_here} isValidNeighborId(id_s) ==> n.south.Some? && n.south.value == id_s;
+
+      // West
+      var id_w := (this.x() - 1) + this.y() * this.dim;
+      if isValidNeighborId(id_w) {
+        n.west := Wrappers.Option.Some(id_w);
+      }
     }
 
     predicate channelConnected(ch: Direction)
