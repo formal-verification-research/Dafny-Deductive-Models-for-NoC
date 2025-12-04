@@ -145,6 +145,9 @@ module NoC2 {
     }
   }
 
+  datatype DirWrapper<T> =
+  | DirWrapper(north: T, east: T, south: T, west: T, local: T)
+
   class Router {
     const id: nat
     const dim: nat
@@ -189,6 +192,8 @@ module NoC2 {
       this.totalUnserviced := 0;
       this.priority_list := [North, East, South, West, Local];
     }
+
+    // --- Helper Functions ---
 
     function x(): (x: nat)
       requires valid()
@@ -291,21 +296,31 @@ module NoC2 {
       }
     }
 
-    method isConnected() returns (n: DirectionWrapper<bool>)
+    function isConnected(): (n: DirWrapper<bool>)
       requires valid()
-      ensures fresh(n)
-      ensures n.local
-      ensures isValidNeighborId(this.id - this.dim) <==> n.north
-      ensures isValidNeighborId(this.id + 1)        <==> n.east
-      ensures isValidNeighborId(this.id + this.dim) <==> n.south
-      ensures isValidNeighborId(this.id - 1)        <==> n.west
     {
-      n := new DirectionWrapper(isValidNeighborId(this.id - this.dim),
-                                isValidNeighborId(this.id + 1),
-                                isValidNeighborId(this.id + this.dim),
-                                isValidNeighborId(this.id - 1),
-                                true);
+      DirWrapper(isValidNeighborId(this.id - this.dim),
+                 isValidNeighborId(this.id + 1),
+                 isValidNeighborId(this.id + this.dim),
+                 isValidNeighborId(this.id - 1),
+                 true)
     }
+
+    predicate isNeighborsWith(other: Router)
+      requires this.valid() && other.valid() && this.dim == other.dim
+      reads this, other
+    {
+      || this.id - this.dim == other.id
+      || this.id + 1        == other.id
+      || this.id + this.dim == other.id
+      || this.id - 1        == other.id
+    }
+
+    lemma ifNeighborsThenValidId(other: Router)
+      requires this.valid() && other.valid() && this.dim == other.dim
+      requires this.isNeighborsWith(other)
+      ensures 0 <= other.id < this.dim*this.dim && other.id != this.id
+    {}
 
     predicate channelConnected(ch: Direction)
       requires valid()
@@ -318,6 +333,35 @@ module NoC2 {
       case West  => this.x() != 0
     }
 
+    function flatten<T>(s: seq<seq<T>>): seq<T> {
+      if s == [] then [] else s[0] + flatten(s[1..])
+    }
+
+    lemma inFlatten<T>(s: seq<seq<T>>)
+      ensures forall i, j | i in s && j in i :: j in flatten(s)
+    {}
+
+    lemma existsInFlatten<T>(x: T, s: seq<seq<T>>)
+      ensures (exists i | i in s :: x in i) ==> x in flatten(s)
+    {}
+
+    ghost function flattenBuffers(): seq<nat>
+      reads this.buffers
+    {
+      flatten([this.buffers.north.buffer,
+               this.buffers.east.buffer,
+               this.buffers.south.buffer,
+               this.buffers.west.buffer,
+               this.buffers.local.buffer])
+    }
+
+    ghost predicate buffersContainValidIds()
+      reads this.buffers
+    {
+      forall j | j in this.flattenBuffers() :: this.isValidId(j)
+    }
+
+    // --- Router Functionality ---
     static method getDestination(id: nat, dim: nat) returns (dest: nat)
       ensures {:axiom} 0 <= dest < dim*dim && dest != id
 
@@ -391,6 +435,7 @@ module NoC2 {
       requires other.valid()
       requires this.dim == other.dim
       requires this.id != other.id
+      requires this.isNeighborsWith(other)
       requires this.buffers.fromDir(from).length() > 0
       modifies this.serviced
       modifies this.used
@@ -399,7 +444,6 @@ module NoC2 {
       modifies other.buffers
     {
       var dest_id := this.buffers.fromDir(from).peekFirst();
-      assume 0 <= dest_id < this.dim*this.dim;
       var column_shift := Router.calcX(dest_id, this.dim) - this.x();
 
       if column_shift == 0 {
@@ -420,6 +464,7 @@ module NoC2 {
       requires other.valid()
       requires this.dim == other.dim
       requires this.id != other.id
+      requires this.isNeighborsWith(other)
       requires this.buffers.fromDir(from).length() > 0
       modifies this.serviced
       modifies this.used
@@ -430,7 +475,14 @@ module NoC2 {
       if (!from.Local? && this.channelConnected(from)) || this.buffers.fromDir(from).isEmpty {
         this.serviced.writeByDir(from, true);
       } else if (this.buffers.fromDir(from).peekFirst() == this.id) {
-        // TODO
+        if !this.used.local {
+          this.used.local := true;
+          var b := this.buffers.fromDir(from);
+          this.buffers.writeByDir(from, b.dropFirst());
+          this.serviced.writeByDir(from, true);
+        } else {
+          this.totalUnserviced := this.totalUnserviced + 1;
+        }
       } else {
         advanceFlits(other, from);
       }
@@ -441,12 +493,21 @@ module NoC2 {
       requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.dim == n.value.dim
       requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.id != n.value.id
       requires forall n | n in neighbors.asSeq() :: n.Some? ==> n.value.valid()
+      requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.isNeighborsWith(n.value)
       modifies this.serviced
       modifies this.used
       modifies this.buffers
       modifies this`totalUnserviced
+      modifies (set x | x in neighbors.asSeq() && x.Some? :: x.value.buffers)
     {
-
+      for i := 0 to |this.priority_list|
+      {
+        var dir := this.priority_list[i];
+        var n := neighbors.fromDir(dir);
+        if n.Some? && this.buffers.fromDir(dir).length() > 0 {
+          this.advanceChannel(n.value, dir);
+        }
+      }
     }
     
     method updatePriority()
