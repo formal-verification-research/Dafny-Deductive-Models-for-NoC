@@ -181,6 +181,7 @@ module NoC2 {
       ensures this.totalUnserviced == 0
       ensures this.used.asSeq() == [false, false, false, false, false]
       ensures this.priority_list == [North, East, South, West, Local]
+      ensures this.buffersContainValidIds()
       ensures valid()
     {
       this.id := id;
@@ -358,7 +359,11 @@ module NoC2 {
     ghost predicate buffersContainValidIds()
       reads this.buffers
     {
-      forall j | j in this.flattenBuffers() :: this.isValidId(j)
+      && (forall i | i in this.buffers.north.buffer :: this.isValidId(i))
+      && (forall i | i in this.buffers.east.buffer  :: this.isValidId(i))
+      && (forall i | i in this.buffers.south.buffer :: this.isValidId(i))
+      && (forall i | i in this.buffers.west.buffer  :: this.isValidId(i))
+      && (forall i | i in this.buffers.local.buffer :: this.isValidId(i))
     }
 
     // --- Router Functionality ---
@@ -405,6 +410,8 @@ module NoC2 {
       requires this.id != other.id
       requires dir != Local
       requires this.buffers.fromDir(from).length() > 0
+      requires this.buffersContainValidIds()
+      requires other.buffersContainValidIds()
       modifies this.serviced
       modifies this.used
       modifies this.buffers
@@ -437,6 +444,8 @@ module NoC2 {
       requires this.id != other.id
       requires this.isNeighborsWith(other)
       requires this.buffers.fromDir(from).length() > 0
+      requires this.buffersContainValidIds()
+      requires other.buffersContainValidIds()
       modifies this.serviced
       modifies this.used
       modifies this.buffers
@@ -466,6 +475,8 @@ module NoC2 {
       requires this.id != other.id
       requires this.isNeighborsWith(other)
       requires this.buffers.fromDir(from).length() > 0
+      requires this.buffersContainValidIds()
+      requires other.buffersContainValidIds()
       modifies this.serviced
       modifies this.used
       modifies this.buffers
@@ -490,10 +501,12 @@ module NoC2 {
 
     method advanceRouter(neighbors: DirectionWrapper<Wrappers.Option<Router>>)
       requires valid()
+      requires this.buffersContainValidIds()
       requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.dim == n.value.dim
       requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.id != n.value.id
       requires forall n | n in neighbors.asSeq() :: n.Some? ==> n.value.valid()
       requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.isNeighborsWith(n.value)
+      requires forall n | n in neighbors.asSeq() :: n.Some? ==> n.value.buffersContainValidIds()
       modifies this.serviced
       modifies this.used
       modifies this.buffers
@@ -505,6 +518,10 @@ module NoC2 {
         var dir := this.priority_list[i];
         var n := neighbors.fromDir(dir);
         if n.Some? && this.buffers.fromDir(dir).length() > 0 {
+          assert n.value.buffersContainValidIds() by {
+            assert n in neighbors.asSeq();
+            assert n.Some? ==> n.value.buffersContainValidIds();
+          }
           this.advanceChannel(n.value, dir);
         }
       }
