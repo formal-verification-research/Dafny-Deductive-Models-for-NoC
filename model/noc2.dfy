@@ -248,48 +248,63 @@ module NoC2 {
       ensures fresh(n)
       ensures n.local.None?
       ensures
-        var id := this.x() + (this.y() - 1) * this.dim;
+        var id := this.id - this.dim;
         && (isValidNeighborId(id) ==> n.north.Some? && n.north.value == id)
         && (!isValidNeighborId(id) ==> n.north.None?)
       ensures
-        var id := (this.x() + 1) + this.y() * this.dim;
+        var id := this.id + 1;
         && (isValidNeighborId(id) ==> n.east.Some? && n.east.value == id)
         && (!isValidNeighborId(id) ==> n.east.None?)
       ensures
-        var id := this.x() + (this.y() + 1) * this.dim;
+        var id := this.id + this.dim;
         && (isValidNeighborId(id) ==> n.south.Some? && n.south.value == id)
         && (!isValidNeighborId(id) ==> n.south.None?)
       ensures
-        var id := (this.x() - 1) + this.y() * this.dim;
+        var id := this.id - 1;
         && (isValidNeighborId(id) ==> n.west.Some? && n.west.value == id)
         && (!isValidNeighborId(id) ==> n.west.None?)
     {
       n := new DirectionWrapper(Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None);
       
       // North
-      var id_n := this.x() + (this.y() - 1) * this.dim;
+      var id_n := this.id - this.dim;
       if isValidNeighborId(id_n) {
         n.north := Wrappers.Option.Some(id_n);
       }
 
       // East
-      var id_e := (this.x() + 1) + this.y() * this.dim;
+      var id_e := this.id + 1;
       if isValidNeighborId(id_e) {
         n.east := Wrappers.Option.Some(id_e);
       }
 
       // South
-      var id_s := this.x() + (this.y() - 1) * this.dim;
+      var id_s := this.id + this.dim;
       if isValidNeighborId(id_s) {
         n.south := Wrappers.Option.Some(id_s);
       }
-      assert {:split_here} isValidNeighborId(id_s) ==> n.south.Some? && n.south.value == id_s;
 
       // West
-      var id_w := (this.x() - 1) + this.y() * this.dim;
+      var id_w := this.id - 1;
       if isValidNeighborId(id_w) {
         n.west := Wrappers.Option.Some(id_w);
       }
+    }
+
+    method isConnected() returns (n: DirectionWrapper<bool>)
+      requires valid()
+      ensures fresh(n)
+      ensures n.local
+      ensures isValidNeighborId(this.id - this.dim) <==> n.north
+      ensures isValidNeighborId(this.id + 1)        <==> n.east
+      ensures isValidNeighborId(this.id + this.dim) <==> n.south
+      ensures isValidNeighborId(this.id - 1)        <==> n.west
+    {
+      n := new DirectionWrapper(isValidNeighborId(this.id - this.dim),
+                                isValidNeighborId(this.id + 1),
+                                isValidNeighborId(this.id + this.dim),
+                                isValidNeighborId(this.id - 1),
+                                true);
     }
 
     predicate channelConnected(ch: Direction)
