@@ -637,7 +637,6 @@ module NoC2 {
       requires buffer_length > 0
       decreases *
     {
-      assume false;
       var routers: seq<Router> := this.construct(buffer_length);
 
       var cycle: nat := 0;
@@ -654,10 +653,18 @@ module NoC2 {
         for i := 0 to |routers| { routers[i].prepRouter(cycle); }
 
         for i := 0 to |routers| {
-          // routers[i].advanceRouter(neighbors);
+          var ids := routers[i].getNeighborIds();
+          var neighbors := new DirectionWrapper(if ids.north.Some? then Wrappers.Some(routers[ids.north.value]) else Wrappers.None,
+                                                if ids.east.Some?  then Wrappers.Some(routers[ids.east.value]) else Wrappers.None,
+                                                if ids.south.Some? then Wrappers.Some(routers[ids.south.value]) else Wrappers.None,
+                                                if ids.west.Some?  then Wrappers.Some(routers[ids.west.value]) else Wrappers.None,
+                                                Wrappers.None);
+          routers[i].advanceRouter(neighbors);
         }
         
         for i := 0 to |routers| { routers[i].updatePriority(); }
+
+        cycle := cycle + 1;
       }
     }
   }
