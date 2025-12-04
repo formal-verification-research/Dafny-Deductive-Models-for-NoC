@@ -374,6 +374,7 @@ module NoC2 {
       modifies this.buffers`local
       ensures old(this.buffers.local.buffer) <= this.buffers.local.buffer
       ensures old(|this.buffers.local.buffer|) == |this.buffers.local.buffer| || old(|this.buffers.local.buffer|) + 1 == |this.buffers.local.buffer|
+      ensures old(this.packets_repr) == this.packets_repr
     {
       if cycle % 3 < 3 && |this.buffers.local.buffer| < this.buffer_length {
         var dest := Router.getDestination(this.id, this.dim);
@@ -394,6 +395,7 @@ module NoC2 {
       ensures (this.buffers.south.length() == 0 <==> this.buffers.south.isEmpty) && (this.buffers.south.length() >= this.buffer_length <==> this.buffers.south.isFull)
       ensures (this.buffers.west.length()  == 0 <==> this.buffers.west.isEmpty)  && (this.buffers.west.length()  >= this.buffer_length <==> this.buffers.west.isFull)
       ensures (this.buffers.local.length() == 0 <==> this.buffers.local.isEmpty) && (this.buffers.local.length() >= this.buffer_length <==> this.buffers.local.isFull)
+      ensures old(this.packets_repr) == this.packets_repr
     {
       this.buffers.north := this.buffers.north.setFlags(this.buffer_length);
       this.buffers.east  := this.buffers.east.setFlags(this.buffer_length);
@@ -414,6 +416,7 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
+      ensures old(this.packets_repr) == this.packets_repr
     {
       var dest_dir := dir.getDestinationDir();
 
@@ -446,6 +449,7 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
+      ensures old(this.packets_repr) == this.packets_repr
     {
       var dest_id := this.buffers.fromDir(from).peekFirst();
       var column_shift := Router.calcX(dest_id, this.dim) - this.x();
@@ -475,6 +479,7 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
+      ensures old(this.packets_repr) == this.packets_repr
     {
       if (!from.Local? && this.channelConnected(from)) || this.buffers.fromDir(from).isEmpty {
         this.serviced.writeByDir(from, true);
@@ -503,6 +508,7 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies (set x | x in neighbors.asSeq() && x.Some? :: x.value.buffers)
+      ensures old(this.packets_repr) == this.packets_repr
     {
       for i := 0 to |this.priority_list|
       {
@@ -522,6 +528,7 @@ module NoC2 {
       ensures this.serviced.asSeq() == [false, false, false, false, false]
       ensures this.used.asSeq() == [false, false, false, false, false]
       ensures this.totalUnserviced == 0
+      ensures old(this.packets_repr) == this.packets_repr
     {
       var priority_list_temp: FixedSeq<Direction> := [North, East, South, West, Local];
       var serviced_index := 0;
