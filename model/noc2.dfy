@@ -398,6 +398,17 @@ module NoC2 {
       }
     }
 
+    ghost predicate allPacketsAreValid()
+      requires valid()
+      reads this.buffers
+    {
+      && (forall j | 0 <= j < this.buffers.north.length() :: isValidId(this.buffers.north.buffer[j]))
+      && (forall j | 0 <= j < this.buffers.east.length()  :: isValidId(this.buffers.east.buffer[j]) )
+      && (forall j | 0 <= j < this.buffers.south.length() :: isValidId(this.buffers.south.buffer[j]))
+      && (forall j | 0 <= j < this.buffers.west.length()  :: isValidId(this.buffers.west.buffer[j]) )
+      && (forall j | 0 <= j < this.buffers.local.length() :: isValidId(this.buffers.local.buffer[j]))
+    }
+
     // --- Router Functionality ---
     method generateFlits(dest: Wrappers.Option<nat>)
       requires valid()
@@ -478,6 +489,7 @@ module NoC2 {
     method advanceFlits(other: Router, from: Direction)
       requires valid()
       requires this.bufferLengthsValid()
+      requires this.allPacketsAreValid()
       requires other.valid()
       requires other.bufferLengthsValid()
       requires this.dim == other.dim
@@ -512,6 +524,7 @@ module NoC2 {
     method advanceChannel(other: Router, from: Direction)
       requires valid()
       requires this.bufferLengthsValid()
+      requires this.allPacketsAreValid()
       requires other.valid()
       requires other.bufferLengthsValid()
       requires this.dim == other.dim
