@@ -380,6 +380,24 @@ module NoC2 {
       && Local in this.priority_list
     }
 
+    lemma priorityListAllDirectionsPresent(p: seq<Direction>)
+      requires |p| == 5
+      requires forall i, j | 0 <= i < 5 && 0 <= j < 5 && i != j :: p[i] != p[j]
+      ensures North in p && East in p && South in p && West in p && Local in p
+    {
+      var items := {p[0], p[1], p[2], p[3], p[4]};
+      assert |items| == 5; 
+
+      var allDirs := {North, East, South, West, Local};
+      assert |allDirs| == 5;
+
+      if North !in items {
+        assert items <= {East, South, West, Local};
+        assert |items| <= 4;
+        assert false;
+      }
+    }
+
     // --- Router Functionality ---
     method generateFlits(dest: Wrappers.Option<nat>)
       requires valid()
@@ -615,13 +633,23 @@ module NoC2 {
         }
       }
 
-      assume false;
+      for i := 0 to 5
+        invariant forall j: nat, k: nat | j != k && j < i && k < i :: indices[j] != indices[k]
+        invariant forall j: nat, k: nat | j != k && j < i && k < i :: this.priority_list[j] != this.priority_list[k]
+        invariant forall j: nat, k: nat | j != k && j < i && k < i :: this.priority_list[indices[j]] != this.priority_list[indices[k]]
+        invariant forall j: nat | j < i :: priority_list_temp[j] == this.priority_list[indices[j]]
+        invariant forall j: nat, k: nat | j != k && j < i && k < i :: priority_list_temp[j] != priority_list_temp[k]
+      {
+        priority_list_temp := priority_list_temp[i := this.priority_list[indices[i]]];
+      }
 
       // if all channels are empty then reset the priority list
       if Seq.FoldLeft((x, y) => x && y, true, Seq.Map((z: Buffer) => z.isEmpty, this.buffers.asSeq())) {
         this.priority_list := [North, East, South, West, Local];
       } else {
+        this.priorityListAllDirectionsPresent(priority_list_temp);
         this.priority_list := priority_list_temp;
+        assert this.priorityListIsValid();
       }
 
       // Reset other variables
