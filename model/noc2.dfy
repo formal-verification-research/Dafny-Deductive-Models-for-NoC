@@ -258,16 +258,16 @@ module NoC2 {
         && (!isValidNeighborId(id) ==> n.north.None?)
       ensures
         var id := this.id + 1;
-        && (isValidNeighborId(id) ==> n.east.Some? && n.east.value == id)
-        && (!isValidNeighborId(id) ==> n.east.None?)
+        && (isValidNeighborId(id) && this.x() < this.dim - 1 ==> n.east.Some? && n.east.value == id)
+        && (!isValidNeighborId(id) || this.x() == this.dim - 1 ==> n.east.None?)
       ensures
         var id := this.id + this.dim;
         && (isValidNeighborId(id) ==> n.south.Some? && n.south.value == id)
         && (!isValidNeighborId(id) ==> n.south.None?)
       ensures
         var id := this.id - 1;
-        && (isValidNeighborId(id) ==> n.west.Some? && n.west.value == id)
-        && (!isValidNeighborId(id) ==> n.west.None?)
+        && (isValidNeighborId(id) && this.x() != 0 ==> n.west.Some? && n.west.value == id)
+        && (!isValidNeighborId(id) || this.x() == 0 ==> n.west.None?)
     {
       n := new DirectionWrapper(Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None, Wrappers.Option.None);
       
@@ -279,7 +279,7 @@ module NoC2 {
 
       // East
       var id_e := this.id + 1;
-      if isValidNeighborId(id_e) {
+      if isValidNeighborId(id_e) && this.x() < this.dim - 1 {
         n.east := Wrappers.Option.Some(id_e);
       }
 
@@ -291,7 +291,7 @@ module NoC2 {
 
       // West
       var id_w := this.id - 1;
-      if isValidNeighborId(id_w) {
+      if isValidNeighborId(id_w) && this.x() != 0 {
         n.west := Wrappers.Option.Some(id_w);
       }
     }
@@ -356,19 +356,16 @@ module NoC2 {
     }
 
     // --- Router Functionality ---
-    static method getDestination(id: nat, dim: nat) returns (dest: nat)
-      ensures {:axiom} 0 <= dest < dim*dim && dest != id
-
-    method generateFlits(cycle: nat)
+    method generateFlits(dest: Wrappers.Option<nat>)
       requires valid()
+      requires dest.Some? ==> |this.buffers.local.buffer| < this.buffer_length
+      requires dest.Some? ==> isValidId(dest.value) && dest.value != this.id
       modifies this.buffers`local
       ensures old(this.buffers.local.buffer) <= this.buffers.local.buffer
       ensures old(|this.buffers.local.buffer|) == |this.buffers.local.buffer| || old(|this.buffers.local.buffer|) + 1 == |this.buffers.local.buffer|
     {
-      if cycle % 3 < 3 && |this.buffers.local.buffer| < this.buffer_length {
-        var dest := Router.getDestination(this.id, this.dim);
-        assert isValidId(dest) && dest != id;
-        this.buffers.local := this.buffers.local.insert(dest);
+      if dest.Some? {
+        this.buffers.local := this.buffers.local.insert(dest.value);
       }
     }
 
@@ -485,6 +482,7 @@ module NoC2 {
     }
 
     method advanceRouter(neighbors: DirectionWrapper<Wrappers.Option<Router>>)
+    // TODO require local is never a neighbor
       requires valid()
       requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.dim == n.value.dim
       requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.id != n.value.id
@@ -553,8 +551,11 @@ module NoC2 {
     }
   }
 
-  datatype NoC = 
-  | NoC(dim: nat)
+
+  method getDestination(id: nat, dim: nat) returns (dest: nat)
+    ensures {:axiom} 0 <= dest < dim*dim && dest != id
+
+  datatype NoC = NoC(dim: nat)
   {
     method construct(buffer_length: nat) returns (routers: seq<Router>)
       requires dim >= 2
@@ -628,7 +629,14 @@ module NoC2 {
         modifies (set x | x in routers :: x.used)
         modifies (set x | x in routers :: x.buffers)
       {
-        for i := 0 to |routers| { routers[i].generateFlits(cycle); }
+        for i := 0 to |routers| {
+          if cycle % 3 < 3 && routers[i].buffers.local.length() < routers[i].buffer_length {
+            var dest := getDestination(routers[i].id, routers[i].dim);
+            var dest_opt := Wrappers.Option.Some(dest);
+            routers[i].generateFlits(dest_opt);
+          }
+        }
+        
         for i := 0 to |routers| { routers[i].prepRouter(cycle); }
 
         for i := 0 to |routers| {
