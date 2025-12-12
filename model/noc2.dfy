@@ -494,7 +494,6 @@ module NoC2 {
       ensures other.bufferLengthsValid()
     {
       var dest_id := this.buffers.fromDir(from).peekFirst();
-      assume {:axiom} isValidId(dest_id);
       var column_shift := Router.calcX(dest_id, this.dim) - this.x();
 
       if column_shift == 0 {
