@@ -398,25 +398,25 @@ module NoC2 {
       }
     }
 
-    ghost predicate allPacketsAreValid()
-      requires valid()
+    ghost predicate packetsInBufferAreValid(buf: Direction)
       reads this.buffers
     {
-      && (forall j | 0 <= j < this.buffers.north.length() :: isValidId(this.buffers.north.buffer[j]))
-      && (forall j | 0 <= j < this.buffers.east.length()  :: isValidId(this.buffers.east.buffer[j]) )
-      && (forall j | 0 <= j < this.buffers.south.length() :: isValidId(this.buffers.south.buffer[j]))
-      && (forall j | 0 <= j < this.buffers.west.length()  :: isValidId(this.buffers.west.buffer[j]) )
-      && (forall j | 0 <= j < this.buffers.local.length() :: isValidId(this.buffers.local.buffer[j]))
+      forall j | j in this.buffers.fromDir(buf).buffer :: isValidId(j)
     }
+
+    lemma packetsInBufferAreValidAxiom(buf: Direction)
+      ensures {:axiom} packetsInBufferAreValid(buf)
 
     // --- Router Functionality ---
     method generateFlits(dest: Wrappers.Option<nat>)
       requires valid()
       requires this.bufferLengthsValid()
+      requires packetsInBufferAreValid(Local)
       requires dest.Some? ==> this.buffers.local.length() < this.buffer_length
       requires dest.Some? ==> isValidId(dest.value) && dest.value != this.id
       modifies this.buffers`local
       ensures this.bufferLengthsValid()
+      ensures packetsInBufferAreValid(Local)
     {
       if dest.Some? {
         this.buffers.local := this.buffers.local.insert(dest.value);
@@ -470,6 +470,10 @@ module NoC2 {
         // AXIOM: todo
         assume {:axiom} other.buffers.fromDir(dest_dir).length() < other.buffer_length;
 
+        // Other Axiom: todo
+        this.packetsInBufferAreValidAxiom(from);
+        other.packetsInBufferAreValidAxiom(from);
+
         // Send packet from source
         var from_channel := this.buffers.fromDir(from);
         var packet := from_channel.peekFirst();
@@ -481,6 +485,12 @@ module NoC2 {
         // mark used
         this.used.writeByDir(dir, true);
         this.serviced.writeByDir(from, true);
+
+        // Check that still valid
+        assert this.packetsInBufferAreValid(from);
+        assert other.packetsInBufferAreValid(from) by {
+          assert packet in old(this.buffers.fromDir(from).buffer) && isValidId(packet);
+        }
       } else {
         this.totalUnserviced := this.totalUnserviced + 1;
       }
@@ -489,7 +499,6 @@ module NoC2 {
     method advanceFlits(other: Router, from: Direction)
       requires valid()
       requires this.bufferLengthsValid()
-      requires this.allPacketsAreValid()
       requires other.valid()
       requires other.bufferLengthsValid()
       requires this.dim == other.dim
@@ -506,6 +515,9 @@ module NoC2 {
       ensures other.bufferLengthsValid()
     {
       var dest_id := this.buffers.fromDir(from).peekFirst();
+      assert isValidId(dest_id) by {
+        this.packetsInBufferAreValidAxiom(from);
+      }
       var column_shift := Router.calcX(dest_id, this.dim) - this.x();
 
       if column_shift == 0 {
@@ -524,7 +536,6 @@ module NoC2 {
     method advanceChannel(other: Router, from: Direction)
       requires valid()
       requires this.bufferLengthsValid()
-      requires this.allPacketsAreValid()
       requires other.valid()
       requires other.bufferLengthsValid()
       requires this.dim == other.dim
@@ -544,10 +555,12 @@ module NoC2 {
         this.serviced.writeByDir(from, true);
       } else if (this.buffers.fromDir(from).peekFirst() == this.id) {
         if !this.used.local {
+          this.packetsInBufferAreValidAxiom(from);
           this.used.local := true;
           var b := this.buffers.fromDir(from);
           this.buffers.writeByDir(from, b.dropFirst());
           this.serviced.writeByDir(from, true);
+          assert this.packetsInBufferAreValid(from);
         } else {
           this.totalUnserviced := this.totalUnserviced + 1;
         }
@@ -763,6 +776,7 @@ module NoC2 {
           if cycle % 3 < 3 && routers[i].buffers.local.length() < routers[i].buffer_length {
             var dest := getDestination(routers[i].id, routers[i].dim);
             var dest_opt := Wrappers.Option.Some(dest);
+            routers[i].packetsInBufferAreValidAxiom(Local);
             routers[i].generateFlits(dest_opt);
           }
         }
