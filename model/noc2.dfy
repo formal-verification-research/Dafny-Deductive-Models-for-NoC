@@ -554,6 +554,12 @@ module NoC2 {
 
   method getDestination(id: nat, dim: nat) returns (dest: nat)
     ensures {:axiom} 0 <= dest < dim*dim && dest != id
+  
+  lemma getDestinationAllowsAllNeighbors(id: nat, dim: nat) returns (dest: nat)
+    ensures 0 <= dest < dim*dim && dest != id
+  {
+    dest := getDestination(id, dim);
+  }
 
   datatype NoC = NoC(dim: nat)
   {
