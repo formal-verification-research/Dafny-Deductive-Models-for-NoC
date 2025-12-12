@@ -369,6 +369,16 @@ module NoC2 {
       && this.buffers.west.length()  <= this.buffer_length
       && this.buffers.local.length() <= this.buffer_length
     }
+    
+    ghost predicate priorityListIsValid()
+      reads this`priority_list
+    {
+      && North in this.priority_list
+      && East  in this.priority_list
+      && South in this.priority_list
+      && West  in this.priority_list
+      && Local in this.priority_list
+    }
 
     // --- Router Functionality ---
     method generateFlits(dest: Wrappers.Option<nat>)
@@ -577,6 +587,7 @@ module NoC2 {
     }
     
     method updatePriority()
+      requires this.priorityListIsValid()
       modifies this`priority_list
       modifies this.serviced
       modifies this.used
@@ -584,30 +595,27 @@ module NoC2 {
       ensures this.serviced.asSeq() == [false, false, false, false, false]
       ensures this.used.asSeq() == [false, false, false, false, false]
       ensures this.totalUnserviced == 0
+      ensures this.priorityListIsValid()
     {
       var priority_list_temp: FixedSeq<Direction> := [North, East, South, West, Local];
-      var serviced_index := 0;
       var unserviced_index := 0;
-      var i := 0;
+      var indices: FixedSeq<nat> := [0, 1, 2, 3, 4];
+      var s_in_order := Seq.Map((x) reads this.serviced => this.serviced.fromDir(x), this.priority_list);
+      assert |s_in_order| == 5;
 
-      while i < 4
-        invariant 0 <= i <= 4
-        invariant 0 <= serviced_index <= i
+      for i := 0 to 5
         invariant 0 <= unserviced_index <= i
+        invariant forall j: nat | j < 5 :: 0 <= indices[j] < 5
+        invariant forall j: nat, k: nat | j != k && j < 5 && k < 5 :: indices[j] != indices[k]
       {
-        if this.serviced.fromDir(this.priority_list[i]) {
-          var index := this.totalUnserviced + serviced_index;
-          assume 0 <= index < 4;
-          priority_list_temp := priority_list_temp[index := this.priority_list[i]];
-          serviced_index := serviced_index + 1;
+        if s_in_order[indices[unserviced_index]] {
+          indices := indices[0..unserviced_index] + indices[unserviced_index+1..] + [indices[unserviced_index]];
         } else {
-          var index := unserviced_index;
-          priority_list_temp := priority_list_temp[index := this.priority_list[i]];
           unserviced_index := unserviced_index + 1;
         }
-
-        i := i + 1;
       }
+
+      assume false;
 
       // if all channels are empty then reset the priority list
       if Seq.FoldLeft((x, y) => x && y, true, Seq.Map((z: Buffer) => z.isEmpty, this.buffers.asSeq())) {
@@ -703,14 +711,14 @@ module NoC2 {
         decreases *
         invariant 0 <= cycle
         invariant forall r | r in routers :: fresh(r) && fresh(r.buffers) && fresh(r.serviced) && fresh(r.used)
-        invariant forall r | r in routers :: r.bufferLengthsValid()
+        invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid()
         modifies routers[..]
         modifies (set x | x in routers :: x.serviced)
         modifies (set x | x in routers :: x.used)
         modifies (set x | x in routers :: x.buffers)
       {
         for i := 0 to |routers|
-          invariant forall r | r in routers :: r.bufferLengthsValid()
+          invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid()
         {
           if cycle % 3 < 3 && routers[i].buffers.local.length() < routers[i].buffer_length {
             var dest := getDestination(routers[i].id, routers[i].dim);
@@ -719,19 +727,19 @@ module NoC2 {
           }
         }
         for i := 0 to |routers|
-          invariant forall r | r in routers :: r.bufferLengthsValid()
+          invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid()
         {
           routers[i].prepRouter(cycle);
         }
 
         for i := 0 to |routers|
-          invariant {:split_here} forall r | r in routers :: r.bufferLengthsValid()
+          invariant {:split_here} forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid()
         {
           routers[i].advanceRouter(routers);
         }
 
         for i := 0 to |routers|
-          invariant forall r | r in routers :: r.bufferLengthsValid()
+          invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid()
         {
           routers[i].updatePriority();
         }
