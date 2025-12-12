@@ -160,7 +160,6 @@ module NoC2 {
     const buffers: DirectionWrapper<Buffer>
     const serviced: DirectionWrapper<bool>
     const used: DirectionWrapper<bool>
-    var totalUnserviced: nat
     var priority_list: FixedSeq<Direction>
 
     predicate valid() {
@@ -184,7 +183,6 @@ module NoC2 {
       ensures this.buffers.west.length()  == 0
       ensures this.buffers.local.length() == 0
       ensures this.serviced.asSeq() == [false, false, false, false, false]
-      ensures this.totalUnserviced == 0
       ensures this.used.asSeq() == [false, false, false, false, false]
       ensures this.priority_list == [North, East, South, West, Local]
     {
@@ -194,7 +192,6 @@ module NoC2 {
       this.buffers := new DirectionWrapper(Buffer.init(), Buffer.init(), Buffer.init(), Buffer.init(), Buffer.init());
       this.serviced := new DirectionWrapper(false, false, false, false, false);
       this.used := new DirectionWrapper(false, false, false, false, false);
-      this.totalUnserviced := 0;
       this.priority_list := [North, East, South, West, Local];
     }
 
@@ -459,7 +456,6 @@ module NoC2 {
       modifies this.serviced
       modifies this.used
       modifies this.buffers
-      modifies this`totalUnserviced
       modifies other.buffers
       ensures this.bufferLengthsValid()
       ensures other.bufferLengthsValid()
@@ -491,8 +487,6 @@ module NoC2 {
         assert other.packetsInBufferAreValid(from) by {
           assert packet in old(this.buffers.fromDir(from).buffer) && isValidId(packet);
         }
-      } else {
-        this.totalUnserviced := this.totalUnserviced + 1;
       }
     }
 
@@ -509,7 +503,6 @@ module NoC2 {
       modifies this.serviced
       modifies this.used
       modifies this.buffers
-      modifies this`totalUnserviced
       modifies other.buffers
       ensures this.bufferLengthsValid()
       ensures other.bufferLengthsValid()
@@ -546,7 +539,6 @@ module NoC2 {
       modifies this.serviced
       modifies this.used
       modifies this.buffers
-      modifies this`totalUnserviced
       modifies other.buffers
       ensures this.bufferLengthsValid()
       ensures other.bufferLengthsValid()
@@ -561,8 +553,6 @@ module NoC2 {
           this.buffers.writeByDir(from, b.dropFirst());
           this.serviced.writeByDir(from, true);
           assert this.packetsInBufferAreValid(from);
-        } else {
-          this.totalUnserviced := this.totalUnserviced + 1;
         }
       } else {
         advanceFlits(other, from);
@@ -585,7 +575,6 @@ module NoC2 {
       modifies this.serviced
       modifies this.used
       modifies this.buffers
-      modifies this`totalUnserviced
       modifies (set x | x in routers :: x.buffers)
       ensures forall r | r in routers :: (
         && r.bufferLengthsValid()
@@ -634,10 +623,8 @@ module NoC2 {
       modifies this`priority_list
       modifies this.serviced
       modifies this.used
-      modifies this`totalUnserviced
       ensures this.serviced.asSeq() == [false, false, false, false, false]
       ensures this.used.asSeq() == [false, false, false, false, false]
-      ensures this.totalUnserviced == 0
       ensures this.priorityListIsValid()
     {
       var priority_list_temp: FixedSeq<Direction> := [North, East, South, West, Local];
@@ -680,7 +667,6 @@ module NoC2 {
       // Reset other variables
       this.serviced.setAllTo(false);
       this.used.setAllTo(false);
-      this.totalUnserviced := 0;
     }
   }
 
@@ -715,7 +701,6 @@ module NoC2 {
           && routers[j].buffers.west.length()  == 0
           && routers[j].buffers.local.length() == 0
           && routers[j].serviced.asSeq() == [false, false, false, false, false]
-          && routers[j].totalUnserviced == 0
           && routers[j].used.asSeq() == [false, false, false, false, false]
           && routers[j].priority_list == [North, East, South, West, Local]
           && routers[j].valid()
@@ -740,7 +725,6 @@ module NoC2 {
           && routers[j].buffers.west.length()  == 0
           && routers[j].buffers.local.length() == 0
           && routers[j].serviced.asSeq() == [false, false, false, false, false]
-          && routers[j].totalUnserviced == 0
           && routers[j].used.asSeq() == [false, false, false, false, false]
           && routers[j].priority_list == [North, East, South, West, Local]
           && routers[j].valid()
