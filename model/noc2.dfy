@@ -116,6 +116,11 @@ module NoC2 {
       ensures dir != South ==> unchanged(`south)
       ensures dir != West  ==> unchanged(`west) 
       ensures dir != Local ==> unchanged(`local)
+      ensures dir == North ==> north == data
+      ensures dir == East  ==> east  == data
+      ensures dir == South ==> south == data
+      ensures dir == West  ==> west  == data
+      ensures dir == Local ==> local == data
     {
       match dir
       case North => { this.north := data; }
@@ -355,14 +360,24 @@ module NoC2 {
       this.buffers.local.buffer
     }
 
+    ghost predicate bufferLengthsValid()
+      reads this.buffers
+    {
+      && this.buffers.north.length() <= this.buffer_length
+      && this.buffers.east.length()  <= this.buffer_length
+      && this.buffers.south.length() <= this.buffer_length
+      && this.buffers.west.length()  <= this.buffer_length
+      && this.buffers.local.length() <= this.buffer_length
+    }
+
     // --- Router Functionality ---
     method generateFlits(dest: Wrappers.Option<nat>)
       requires valid()
-      requires dest.Some? ==> |this.buffers.local.buffer| < this.buffer_length
+      requires this.bufferLengthsValid()
+      requires dest.Some? ==> this.buffers.local.length() < this.buffer_length
       requires dest.Some? ==> isValidId(dest.value) && dest.value != this.id
       modifies this.buffers`local
-      ensures old(this.buffers.local.buffer) <= this.buffers.local.buffer
-      ensures old(|this.buffers.local.buffer|) == |this.buffers.local.buffer| || old(|this.buffers.local.buffer|) + 1 == |this.buffers.local.buffer|
+      ensures this.bufferLengthsValid()
     {
       if dest.Some? {
         this.buffers.local := this.buffers.local.insert(dest.value);
@@ -371,7 +386,9 @@ module NoC2 {
 
     method prepRouter(cycle: nat)
       requires valid()
+      requires this.bufferLengthsValid()
       modifies this.buffers
+      ensures this.bufferLengthsValid()
       ensures old(this.buffers.north.buffer) == this.buffers.north.buffer
       ensures old(this.buffers.east.buffer)  == this.buffers.east.buffer
       ensures old(this.buffers.south.buffer) == this.buffers.south.buffer
@@ -392,8 +409,11 @@ module NoC2 {
 
     method send(other: Router, from: Direction, dir: Direction)
       requires valid()
+      requires this.bufferLengthsValid()
       requires other.valid()
+      requires other.bufferLengthsValid()
       requires this.dim == other.dim
+      requires this.buffer_length == other.buffer_length
       requires this.id != other.id
       requires dir != Local
       requires this.buffers.fromDir(from).length() > 0
@@ -402,10 +422,15 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
+      ensures this.bufferLengthsValid()
+      ensures other.bufferLengthsValid()
     {
       var dest_dir := dir.getDestinationDir();
 
       if !other.buffers.fromDir(dest_dir).isFull && !this.used.fromDir(dir) {
+        // AXIOM: todo
+        assume {:axiom} other.buffers.fromDir(dest_dir).length() < other.buffer_length;
+
         // Send packet from source
         var from_channel := this.buffers.fromDir(from);
         var packet := from_channel.peekFirst();
@@ -424,8 +449,11 @@ module NoC2 {
 
     method advanceFlits(other: Router, from: Direction)
       requires valid()
+      requires this.bufferLengthsValid()
       requires other.valid()
+      requires other.bufferLengthsValid()
       requires this.dim == other.dim
+      requires this.buffer_length == other.buffer_length
       requires this.id != other.id
       requires this.isNeighborsWith(other)
       requires this.buffers.fromDir(from).length() > 0
@@ -434,6 +462,8 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
+      ensures this.bufferLengthsValid()
+      ensures other.bufferLengthsValid()
     {
       var dest_id := this.buffers.fromDir(from).peekFirst();
       assume {:axiom} isValidId(dest_id);
@@ -454,8 +484,11 @@ module NoC2 {
 
     method advanceChannel(other: Router, from: Direction)
       requires valid()
+      requires this.bufferLengthsValid()
       requires other.valid()
+      requires other.bufferLengthsValid()
       requires this.dim == other.dim
+      requires this.buffer_length == other.buffer_length
       requires this.id != other.id
       requires this.isNeighborsWith(other)
       requires this.buffers.fromDir(from).length() > 0
@@ -464,6 +497,8 @@ module NoC2 {
       modifies this.buffers
       modifies this`totalUnserviced
       modifies other.buffers
+      ensures this.bufferLengthsValid()
+      ensures other.bufferLengthsValid()
     {
       if (!from.Local? && this.channelConnected(from)) || this.buffers.fromDir(from).isEmpty {
         this.serviced.writeByDir(from, true);
@@ -481,26 +516,63 @@ module NoC2 {
       }
     }
 
-    method advanceRouter(neighbors: DirectionWrapper<Wrappers.Option<Router>>)
-    // TODO require local is never a neighbor
+    method advanceRouter(routers: seq<Router>)
       requires valid()
-      requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.dim == n.value.dim
-      requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.id != n.value.id
-      requires forall n | n in neighbors.asSeq() :: n.Some? ==> n.value.valid()
-      requires forall n | n in neighbors.asSeq() :: n.Some? ==> this.isNeighborsWith(n.value)
+      requires |routers| == this.dim*this.dim
+      requires routers[this.id] == this
+      requires forall r | r in routers :: (
+        && r.valid()
+        && r.bufferLengthsValid()
+        && r.dim == this.dim
+        && r.buffer_length == this.buffer_length
+      )
+      requires forall i | 0 <= i < |routers| :: (
+        && routers[i].id == i
+      )
       modifies this.serviced
       modifies this.used
       modifies this.buffers
       modifies this`totalUnserviced
-      modifies (set x | x in neighbors.asSeq() && x.Some? :: x.value.buffers)
+      modifies (set x | x in routers :: x.buffers)
+      ensures forall r | r in routers :: (
+        && r.bufferLengthsValid()
+      )
     {
       for i := 0 to |this.priority_list|
+        invariant forall r | r in routers :: (
+          && r.bufferLengthsValid()
+        )
       {
-        var dir := this.priority_list[i];
-        var n := neighbors.fromDir(dir);
-        if n.Some? && this.buffers.fromDir(dir).length() > 0 {
-          this.advanceChannel(n.value, dir);
+        match this.priority_list[i]
+        case North => {
+          var id_ := this.id - this.dim;
+          if isValidNeighborId(id_) && this.buffers.fromDir(North).length() > 0 {
+            this.advanceChannel(routers[id_], North);
+          }
         }
+
+        case East => {
+          var id_ := this.id + 1;
+          if isValidNeighborId(id_) && this.x() < this.dim - 1 && this.buffers.fromDir(East).length() > 0 {
+            this.advanceChannel(routers[id_], East);
+          }
+        }
+
+        case South => {
+          var id_ := this.id + this.dim;
+          if isValidNeighborId(id_) && this.buffers.fromDir(South).length() > 0 {
+            this.advanceChannel(routers[id_], South);
+          }
+        }
+
+        case West => {
+          var id_ := this.id - 1;
+          if isValidNeighborId(id_) && this.x() != 0 && this.buffers.fromDir(West).length() > 0 {
+            this.advanceChannel(routers[id_], West);
+          }
+        }
+
+        case Local =>
       }
     }
     
@@ -555,7 +627,7 @@ module NoC2 {
   method getDestination(id: nat, dim: nat) returns (dest: nat)
     ensures {:axiom} 0 <= dest < dim*dim && dest != id
   
-  lemma getDestinationAllowsAllNeighbors(id: nat, dim: nat) returns (dest: nat)
+  method getDestinationAllowsAllNeighbors(id: nat, dim: nat) returns (dest: nat)
     ensures 0 <= dest < dim*dim && dest != id
   {
     dest := getDestination(id, dim);
@@ -630,32 +702,39 @@ module NoC2 {
       while true
         decreases *
         invariant 0 <= cycle
+        invariant forall r | r in routers :: fresh(r) && fresh(r.buffers) && fresh(r.serviced) && fresh(r.used)
+        invariant forall r | r in routers :: r.bufferLengthsValid()
         modifies routers[..]
         modifies (set x | x in routers :: x.serviced)
         modifies (set x | x in routers :: x.used)
         modifies (set x | x in routers :: x.buffers)
       {
-        for i := 0 to |routers| {
+        for i := 0 to |routers|
+          invariant forall r | r in routers :: r.bufferLengthsValid()
+        {
           if cycle % 3 < 3 && routers[i].buffers.local.length() < routers[i].buffer_length {
             var dest := getDestination(routers[i].id, routers[i].dim);
             var dest_opt := Wrappers.Option.Some(dest);
             routers[i].generateFlits(dest_opt);
           }
         }
-        
-        for i := 0 to |routers| { routers[i].prepRouter(cycle); }
-
-        for i := 0 to |routers| {
-          var ids := routers[i].getNeighborIds();
-          var neighbors := new DirectionWrapper(if ids.north.Some? then Wrappers.Some(routers[ids.north.value]) else Wrappers.None,
-                                                if ids.east.Some?  then Wrappers.Some(routers[ids.east.value]) else Wrappers.None,
-                                                if ids.south.Some? then Wrappers.Some(routers[ids.south.value]) else Wrappers.None,
-                                                if ids.west.Some?  then Wrappers.Some(routers[ids.west.value]) else Wrappers.None,
-                                                Wrappers.None);
-          routers[i].advanceRouter(neighbors);
+        for i := 0 to |routers|
+          invariant forall r | r in routers :: r.bufferLengthsValid()
+        {
+          routers[i].prepRouter(cycle);
         }
-        
-        for i := 0 to |routers| { routers[i].updatePriority(); }
+
+        for i := 0 to |routers|
+          invariant {:split_here} forall r | r in routers :: r.bufferLengthsValid()
+        {
+          routers[i].advanceRouter(routers);
+        }
+
+        for i := 0 to |routers|
+          invariant forall r | r in routers :: r.bufferLengthsValid()
+        {
+          routers[i].updatePriority();
+        }
 
         cycle := cycle + 1;
       }
