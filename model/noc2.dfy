@@ -161,6 +161,8 @@ module NoC2 {
     const serviced: DirectionWrapper<bool>
     const used: DirectionWrapper<bool>
     var priority_list: FixedSeq<Direction>
+    
+    ghost var all_packets: set<nat>
 
     predicate valid() {
       && this.dim >= 2
@@ -185,6 +187,7 @@ module NoC2 {
       ensures this.serviced.asSeq() == [false, false, false, false, false]
       ensures this.used.asSeq() == [false, false, false, false, false]
       ensures this.priority_list == [North, East, South, West, Local]
+      ensures this.all_packets == {}
     {
       this.id := id;
       this.dim := dim;
@@ -193,6 +196,7 @@ module NoC2 {
       this.serviced := new DirectionWrapper(false, false, false, false, false);
       this.used := new DirectionWrapper(false, false, false, false, false);
       this.priority_list := [North, East, South, West, Local];
+      this.all_packets := {};
     }
 
     // --- Helper Functions ---
@@ -401,22 +405,33 @@ module NoC2 {
       forall j | j in this.buffers.fromDir(buf).buffer :: isValidId(j)
     }
 
+    ghost predicate allPacketsAreValid()
+      reads this`all_packets
+    {
+      forall p | p in this.all_packets :: isValidId(p)
+    }
+
     lemma packetsInBufferAreValidAxiom(buf: Direction)
+      requires allPacketsAreValid()
       ensures {:axiom} packetsInBufferAreValid(buf)
 
     // --- Router Functionality ---
     method generateFlits(dest: Wrappers.Option<nat>)
       requires valid()
       requires this.bufferLengthsValid()
+      requires allPacketsAreValid()
       requires packetsInBufferAreValid(Local)
       requires dest.Some? ==> this.buffers.local.length() < this.buffer_length
       requires dest.Some? ==> isValidId(dest.value) && dest.value != this.id
       modifies this.buffers`local
+      modifies this`all_packets
       ensures this.bufferLengthsValid()
       ensures packetsInBufferAreValid(Local)
+      ensures dest.Some? ==> dest.value in this.all_packets && this.allPacketsAreValid()
     {
       if dest.Some? {
         this.buffers.local := this.buffers.local.insert(dest.value);
+        this.all_packets := this.all_packets + {dest.value};
       }
     }
 
@@ -446,8 +461,10 @@ module NoC2 {
     method send(other: Router, from: Direction, dir: Direction)
       requires valid()
       requires this.bufferLengthsValid()
+      requires this.allPacketsAreValid()
       requires other.valid()
       requires other.bufferLengthsValid()
+      requires other.allPacketsAreValid()
       requires this.dim == other.dim
       requires this.buffer_length == other.buffer_length
       requires this.id != other.id
@@ -456,9 +473,13 @@ module NoC2 {
       modifies this.serviced
       modifies this.used
       modifies this.buffers
+      modifies this`all_packets
       modifies other.buffers
+      modifies other`all_packets
       ensures this.bufferLengthsValid()
+      ensures this.allPacketsAreValid()
       ensures other.bufferLengthsValid()
+      ensures other.allPacketsAreValid()
     {
       var dest_dir := dir.getDestinationDir();
 
@@ -474,9 +495,11 @@ module NoC2 {
         var from_channel := this.buffers.fromDir(from);
         var packet := from_channel.peekFirst();
         this.buffers.writeByDir(from, from_channel.dropFirst());
+        this.all_packets := this.all_packets - {packet};
 
         // recieve packet at destination
         other.buffers.writeByDir(dest_dir, other.buffers.fromDir(dest_dir).insert(packet));
+        other.all_packets := other.all_packets - {packet};
 
         // mark used
         this.used.writeByDir(dir, true);
@@ -493,8 +516,10 @@ module NoC2 {
     method advanceFlits(other: Router, from: Direction)
       requires valid()
       requires this.bufferLengthsValid()
+      requires this.allPacketsAreValid()
       requires other.valid()
       requires other.bufferLengthsValid()
+      requires other.allPacketsAreValid()
       requires this.dim == other.dim
       requires this.buffer_length == other.buffer_length
       requires this.id != other.id
@@ -503,9 +528,13 @@ module NoC2 {
       modifies this.serviced
       modifies this.used
       modifies this.buffers
+      modifies this`all_packets
       modifies other.buffers
+      modifies other`all_packets
       ensures this.bufferLengthsValid()
+      ensures this.allPacketsAreValid()
       ensures other.bufferLengthsValid()
+      ensures other.allPacketsAreValid()
     {
       var dest_id := this.buffers.fromDir(from).peekFirst();
       assert isValidId(dest_id) by {
@@ -529,8 +558,10 @@ module NoC2 {
     method advanceChannel(other: Router, from: Direction)
       requires valid()
       requires this.bufferLengthsValid()
+      requires this.allPacketsAreValid()
       requires other.valid()
       requires other.bufferLengthsValid()
+      requires other.allPacketsAreValid()
       requires this.dim == other.dim
       requires this.buffer_length == other.buffer_length
       requires this.id != other.id
@@ -539,9 +570,13 @@ module NoC2 {
       modifies this.serviced
       modifies this.used
       modifies this.buffers
+      modifies this`all_packets
       modifies other.buffers
+      modifies other`all_packets
       ensures this.bufferLengthsValid()
+      ensures this.allPacketsAreValid()
       ensures other.bufferLengthsValid()
+      ensures other.allPacketsAreValid()
     {
       if (!from.Local? && this.channelConnected(from)) || this.buffers.fromDir(from).isEmpty {
         this.serviced.writeByDir(from, true);
@@ -550,9 +585,11 @@ module NoC2 {
           this.packetsInBufferAreValidAxiom(from);
           this.used.local := true;
           var b := this.buffers.fromDir(from);
+          var packet := b.peekFirst();
           this.buffers.writeByDir(from, b.dropFirst());
           this.serviced.writeByDir(from, true);
           assert this.packetsInBufferAreValid(from);
+          this.all_packets := this.all_packets - {packet};
         }
       } else {
         advanceFlits(other, from);
@@ -566,6 +603,7 @@ module NoC2 {
       requires forall r | r in routers :: (
         && r.valid()
         && r.bufferLengthsValid()
+        && r.allPacketsAreValid()
         && r.dim == this.dim
         && r.buffer_length == this.buffer_length
       )
@@ -575,15 +613,25 @@ module NoC2 {
       modifies this.serviced
       modifies this.used
       modifies this.buffers
-      modifies (set x | x in routers :: x.buffers)
+      modifies this`all_packets
+      modifies set x | x in routers :: x.buffers
+      modifies set x | x in routers :: x`all_packets
       ensures forall r | r in routers :: (
         && r.bufferLengthsValid()
+        && r.allPacketsAreValid()
       )
     {
       for i := 0 to |this.priority_list|
         invariant forall r | r in routers :: (
           && r.bufferLengthsValid()
+          && r.allPacketsAreValid()
         )
+        modifies this.serviced
+        modifies this.used
+        modifies this.buffers
+        modifies this`all_packets
+        modifies set x | x in routers :: x.buffers
+        modifies set x | x in routers :: x`all_packets
       {
         match this.priority_list[i]
         case North => {
@@ -704,6 +752,7 @@ module NoC2 {
           && routers[j].used.asSeq() == [false, false, false, false, false]
           && routers[j].priority_list == [North, East, South, West, Local]
           && routers[j].valid()
+          && routers[j].all_packets == {}
         )
     {
       routers := [];
@@ -728,6 +777,7 @@ module NoC2 {
           && routers[j].used.asSeq() == [false, false, false, false, false]
           && routers[j].priority_list == [North, East, South, West, Local]
           && routers[j].valid()
+          && routers[j].all_packets == {}
         )
       {
         var r := new Router(buffer_length, i, this.dim);
@@ -748,14 +798,15 @@ module NoC2 {
         decreases *
         invariant 0 <= cycle
         invariant forall r | r in routers :: fresh(r) && fresh(r.buffers) && fresh(r.serviced) && fresh(r.used)
-        invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid()
+        invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid() && r.allPacketsAreValid()
         modifies routers[..]
-        modifies (set x | x in routers :: x.serviced)
-        modifies (set x | x in routers :: x.used)
-        modifies (set x | x in routers :: x.buffers)
+        modifies set x | x in routers :: x.serviced
+        modifies set x | x in routers :: x.used
+        modifies set x | x in routers :: x.buffers
+        modifies set x | x in routers :: x`all_packets
       {
         for i := 0 to |routers|
-          invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid()
+          invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid() && r.allPacketsAreValid()
         {
           if cycle % 3 < 3 && routers[i].buffers.local.length() < routers[i].buffer_length {
             var dest := getDestination(routers[i].id, routers[i].dim);
@@ -765,19 +816,19 @@ module NoC2 {
           }
         }
         for i := 0 to |routers|
-          invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid()
+          invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid() && r.allPacketsAreValid()
         {
           routers[i].prepRouter(cycle);
         }
 
         for i := 0 to |routers|
-          invariant {:split_here} forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid()
+          invariant {:split_here} forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid() && r.allPacketsAreValid()
         {
           routers[i].advanceRouter(routers);
         }
 
         for i := 0 to |routers|
-          invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid()
+          invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid() && r.allPacketsAreValid()
         {
           routers[i].updatePriority();
         }
