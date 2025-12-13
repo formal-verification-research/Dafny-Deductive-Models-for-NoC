@@ -719,13 +719,13 @@ module NoC2 {
   }
 
 
-  method getDestination(id: nat, dim: nat) returns (dest: nat)
+  method getPackets(id: nat, dim: nat) returns (dest: nat)
     ensures {:axiom} 0 <= dest < dim*dim && dest != id
   
   method getDestinationAllowsAllNeighbors(id: nat, dim: nat) returns (dest: nat)
     ensures 0 <= dest < dim*dim && dest != id
   {
-    dest := getDestination(id, dim);
+    dest := getPackets(id, dim);
   }
 
   datatype NoC = NoC(dim: nat)
@@ -809,7 +809,7 @@ module NoC2 {
           invariant forall r | r in routers :: r.bufferLengthsValid() && r.priorityListIsValid() && r.allPacketsAreValid()
         {
           if cycle % 3 < 3 && routers[i].buffers.local.length() < routers[i].buffer_length {
-            var dest := getDestination(routers[i].id, routers[i].dim);
+            var dest := getPackets(routers[i].id, routers[i].dim);
             var dest_opt := Wrappers.Option.Some(dest);
             routers[i].packetsInBufferAreValidAxiom(Local);
             routers[i].generateFlits(dest_opt);
