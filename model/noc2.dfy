@@ -397,6 +397,8 @@ module NoC2 {
         assert |items| <= 4;
         assert false;
       }
+
+      // Only prove North, then Z3 can automatically prove the rest
     }
 
     ghost predicate packetsInBufferAreValid(buf: Direction)
