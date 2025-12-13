@@ -164,7 +164,7 @@ module NoC2 {
     
     ghost var all_packets: set<nat>
 
-    predicate valid() {
+    predicate validMetadata() {
       && this.dim >= 2
       && 0 <= this.id < (this.dim*this.dim)
       && buffer_length > 0
@@ -177,7 +177,7 @@ module NoC2 {
       ensures this.id == id
       ensures this.dim == dim
       ensures this.buffer_length == buffer_length
-      ensures valid()
+      ensures validMetadata()
       ensures fresh(this.buffers) && fresh(this.serviced) && fresh(this.used)
       ensures this.buffers.north.length() == 0
       ensures this.buffers.east.length()  == 0
@@ -202,13 +202,13 @@ module NoC2 {
     // --- Helper Functions ---
 
     function x(): (x: nat)
-      requires valid()
+      requires validMetadata()
     {
       this.id % this.dim
     }
 
     function y(): (y: nat)
-      requires valid()
+      requires validMetadata()
     {
       this.id / this.dim
     }
@@ -255,7 +255,7 @@ module NoC2 {
     }
 
     method getNeighborIds() returns (n: DirectionWrapper<Wrappers.Option<nat>>)
-      requires valid()
+      requires validMetadata()
       ensures fresh(n)
       ensures n.local.None?
       ensures
@@ -303,7 +303,7 @@ module NoC2 {
     }
 
     function isConnected(): (n: DirWrapper<bool>)
-      requires valid()
+      requires validMetadata()
     {
       DirWrapper(isValidNeighborId(this.id - this.dim),
                  isValidNeighborId(this.id + 1),
@@ -313,7 +313,7 @@ module NoC2 {
     }
 
     predicate isNeighborsWith(other: Router)
-      requires this.valid() && other.valid() && this.dim == other.dim
+      requires this.validMetadata() && other.validMetadata() && this.dim == other.dim
       reads this, other
     {
       || this.id - this.dim == other.id
@@ -323,13 +323,13 @@ module NoC2 {
     }
 
     lemma ifNeighborsThenValidId(other: Router)
-      requires this.valid() && other.valid() && this.dim == other.dim
+      requires this.validMetadata() && other.validMetadata() && this.dim == other.dim
       requires this.isNeighborsWith(other)
       ensures 0 <= other.id < this.dim*this.dim && other.id != this.id
     {}
 
     predicate channelConnected(ch: Direction)
-      requires valid()
+      requires validMetadata()
       requires !ch.Local?
     {
       match ch
@@ -419,7 +419,7 @@ module NoC2 {
 
     // --- Router Functionality ---
     method generateFlits(dest: Wrappers.Option<nat>)
-      requires valid()
+      requires validMetadata()
       requires this.bufferLengthsValid()
       requires allPacketsAreValid()
       requires packetsInBufferAreValid(Local)
@@ -438,7 +438,7 @@ module NoC2 {
     }
 
     method prepRouter(cycle: nat)
-      requires valid()
+      requires validMetadata()
       requires this.bufferLengthsValid()
       modifies this.buffers
       ensures this.bufferLengthsValid()
@@ -461,10 +461,10 @@ module NoC2 {
     }
 
     method send(other: Router, from: Direction, dir: Direction)
-      requires valid()
+      requires validMetadata()
       requires this.bufferLengthsValid()
       requires this.allPacketsAreValid()
-      requires other.valid()
+      requires other.validMetadata()
       requires other.bufferLengthsValid()
       requires other.allPacketsAreValid()
       requires this.dim == other.dim
@@ -516,10 +516,10 @@ module NoC2 {
     }
 
     method advanceFlits(other: Router, from: Direction)
-      requires valid()
+      requires validMetadata()
       requires this.bufferLengthsValid()
       requires this.allPacketsAreValid()
-      requires other.valid()
+      requires other.validMetadata()
       requires other.bufferLengthsValid()
       requires other.allPacketsAreValid()
       requires this.dim == other.dim
@@ -558,10 +558,10 @@ module NoC2 {
     }
 
     method advanceChannel(other: Router, from: Direction)
-      requires valid()
+      requires validMetadata()
       requires this.bufferLengthsValid()
       requires this.allPacketsAreValid()
-      requires other.valid()
+      requires other.validMetadata()
       requires other.bufferLengthsValid()
       requires other.allPacketsAreValid()
       requires this.dim == other.dim
@@ -599,11 +599,11 @@ module NoC2 {
     }
 
     method advanceRouter(routers: seq<Router>)
-      requires valid()
+      requires validMetadata()
       requires |routers| == this.dim*this.dim
       requires routers[this.id] == this
       requires forall r | r in routers :: (
-        && r.valid()
+        && r.validMetadata()
         && r.bufferLengthsValid()
         && r.allPacketsAreValid()
         && r.dim == this.dim
@@ -753,7 +753,7 @@ module NoC2 {
           && routers[j].serviced.asSeq() == [false, false, false, false, false]
           && routers[j].used.asSeq() == [false, false, false, false, false]
           && routers[j].priority_list == [North, East, South, West, Local]
-          && routers[j].valid()
+          && routers[j].validMetadata()
           && routers[j].all_packets == {}
         )
     {
@@ -778,7 +778,7 @@ module NoC2 {
           && routers[j].serviced.asSeq() == [false, false, false, false, false]
           && routers[j].used.asSeq() == [false, false, false, false, false]
           && routers[j].priority_list == [North, East, South, West, Local]
-          && routers[j].valid()
+          && routers[j].validMetadata()
           && routers[j].all_packets == {}
         )
       {
